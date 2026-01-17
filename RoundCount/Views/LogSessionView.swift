@@ -1,9 +1,12 @@
 import SwiftUI
 import SwiftData
+import PhotosUI
+import UIKit
 
 struct LogSessionView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var entitlements: Entitlements
 
     @Query(sort: \Firearm.createdAt, order: .reverse) private var firearms: [Firearm]
 
@@ -19,6 +22,16 @@ struct LogSessionView: View {
     @State private var selectedAmmo: AmmoProduct?
     @State private var showAmmoPicker = false
 
+    // ✅ Session v2 (Pro)
+    @State private var durationHours: Int = 0
+    @State private var durationMinutes: Int = 0
+
+    @State private var malfunctionDraft = MalfunctionDraft()
+    @State private var showMalfunctionEditor = false
+
+    // Photos (Pro)
+    @State private var photoPickerItems: [PhotosPickerItem] = []
+    @State private var pendingPhotoData: [Data] = []
 
     // UI state
     @State private var showAddFirearm = false
@@ -62,7 +75,7 @@ struct LogSessionView: View {
                         }
                     }
                 }
-                
+
                 Section("Ammo (optional)") {
                     Button {
                         showAmmoPicker = true
@@ -99,6 +112,20 @@ struct LogSessionView: View {
                     }
                 }
 
+                // ✅ Pro: Session Upgrades (v2)
+                Section("Session Upgrades") {
+                    if entitlements.isPro {
+                        rangeTimeRow
+                        malfunctionRow
+                        photosRow
+                    } else {
+                        proLockedRow(
+                            title: "Pro Session Upgrades",
+                            subtitle: "Add photos, track malfunctions, and log total range time."
+                        )
+                    }
+                }
+
                 Section("Magazines Used") {
                     // Placeholder (future)
                     HStack {
@@ -128,8 +155,6 @@ struct LogSessionView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     if isModal {
                         Button("Cancel") { dismiss() }
-                    } else {
-                        EmptyView()
                     }
                 }
             }
@@ -155,6 +180,9 @@ struct LogSessionView: View {
             .sheet(isPresented: $showAmmoPicker) {
                 AmmoPickerView(selectedAmmo: $selectedAmmo)
             }
+            .sheet(isPresented: $showMalfunctionEditor) {
+                MalfunctionEditorView(draft: $malfunctionDraft)
+            }
             .onAppear {
                 // Prioritize preselected firearm (if present)
                 if selectedFirearm == nil {
@@ -165,8 +193,103 @@ struct LogSessionView: View {
                     }
                 }
             }
+            .onChange(of: photoPickerItems) { _, newItems in
+                guard entitlements.isPro else { return }
+                Task { await loadPickedPhotos(newItems) }
+            }
         }
     }
+
+    // MARK: - Pro UI rows
+
+    private var rangeTimeRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Total Range Time")
+                Spacer()
+                Text(formattedDuration(hours: durationHours, minutes: durationMinutes))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 12) {
+                Picker("Hours", selection: $durationHours) {
+                    ForEach(0..<13, id: \.self) { Text("\($0)h").tag($0) }
+                }
+                .pickerStyle(.menu)
+
+                Picker("Minutes", selection: $durationMinutes) {
+                    ForEach(Array(stride(from: 0, through: 55, by: 5)), id: \.self) {
+                        Text("\($0)m").tag($0)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+        }
+    }
+
+    private var malfunctionRow: some View {
+        Button {
+            showMalfunctionEditor = true
+        } label: {
+            HStack {
+                Text("Malfunctions")
+                Spacer()
+                Text(malfunctionDraft.isAllZero ? "None" : "\(malfunctionDraft.total)")
+                    .foregroundStyle(.secondary)
+                Image(systemName: "chevron.right")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var photosRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Session Photos")
+                Spacer()
+                Text(pendingPhotoData.isEmpty ? "None" : "\(pendingPhotoData.count)")
+                    .foregroundStyle(.secondary)
+            }
+
+            PhotosPicker(
+                selection: $photoPickerItems,
+                maxSelectionCount: 8,
+                matching: .images,
+                photoLibrary: .shared()
+            ) {
+                HStack {
+                    Image(systemName: "photo.on.rectangle.angled")
+                    Text("Add Photos")
+                }
+            }
+
+            if !pendingPhotoData.isEmpty {
+                Button(role: .destructive) {
+                    pendingPhotoData.removeAll()
+                    photoPickerItems.removeAll()
+                } label: {
+                    Text("Clear Photos")
+                }
+            }
+        }
+    }
+
+    private func proLockedRow(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                Spacer()
+                Image(systemName: "lock.fill")
+                    .foregroundStyle(.secondary)
+            }
+            Text(subtitle)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Save Bar
 
     private var saveBar: some View {
         VStack {
@@ -202,17 +325,62 @@ struct LogSessionView: View {
             ammo: selectedAmmo,
             rounds: rounds,
             date: sessionDate,
-            notes: trimmed.isEmpty ? nil : trimmed
+            notes: trimmed.isEmpty ? nil : trimmed,
+            durationSeconds: entitlements.isPro ? computedDurationSeconds : nil,
+            malfunctions: nil
         )
 
+        // Pro: malfunctions
+        if entitlements.isPro, !malfunctionDraft.isAllZero {
+            let m = MalfunctionSummary(
+                failureToFeed: malfunctionDraft.failureToFeed,
+                failureToEject: malfunctionDraft.failureToEject,
+                stovepipe: malfunctionDraft.stovepipe,
+                doubleFeed: malfunctionDraft.doubleFeed,
+                lightStrike: malfunctionDraft.lightStrike,
+                other: malfunctionDraft.other
+            )
+            session.malfunctions = m
+        }
 
         modelContext.insert(session)
         firearm.totalRounds += rounds
+
+        // Pro: photos (local-only)
+        if entitlements.isPro, !pendingPhotoData.isEmpty {
+            for jpeg in pendingPhotoData {
+                let photoId = UUID()
+                do {
+                    let relPath = try PhotoStore.saveJPEGForSession(
+                        sessionId: session.id,
+                        photoId: photoId,
+                        jpegData: jpeg
+                    )
+                    let photo = SessionPhoto(
+                        id: photoId,
+                        createdAt: .now,
+                        relativePath: relPath,
+                        caption: nil
+                    )
+                    session.photos.append(photo)
+                } catch {
+                    // Non-fatal: keep the session even if a photo save fails
+                }
+            }
+        }
 
         // Reset for fast follow-up logs
         roundsText = ""
         notes = ""
         sessionDate = Date()
+        selectedAmmo = nil
+
+        // Reset Pro state
+        durationHours = 0
+        durationMinutes = 0
+        malfunctionDraft = MalfunctionDraft()
+        pendingPhotoData.removeAll()
+        photoPickerItems.removeAll()
 
         // Toast
         toastText = "Session logged"
@@ -225,6 +393,36 @@ struct LogSessionView: View {
         if isModal {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 dismiss()
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private var computedDurationSeconds: Int? {
+        let totalMinutes = (durationHours * 60) + durationMinutes
+        return totalMinutes > 0 ? totalMinutes * 60 : nil
+    }
+
+    private func formattedDuration(hours: Int, minutes: Int) -> String {
+        let totalMinutes = (hours * 60) + minutes
+        if totalMinutes == 0 { return "None" }
+        if hours == 0 { return "\(minutes)m" }
+        if minutes == 0 { return "\(hours)h" }
+        return "\(hours)h \(minutes)m"
+    }
+
+    private func loadPickedPhotos(_ items: [PhotosPickerItem]) async {
+        pendingPhotoData.removeAll()
+
+        for item in items {
+            if let data = try? await item.loadTransferable(type: Data.self) {
+                if let uiImage = UIImage(data: data),
+                   let jpeg = uiImage.jpegData(compressionQuality: 0.85) {
+                    pendingPhotoData.append(jpeg)
+                } else {
+                    pendingPhotoData.append(data)
+                }
             }
         }
     }

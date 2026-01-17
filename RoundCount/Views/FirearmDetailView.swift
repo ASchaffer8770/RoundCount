@@ -96,29 +96,47 @@ struct FirearmDetailView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(sessions) { s in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text("\(s.rounds) rounds")
-                                    .font(.headline)
-                                Spacer()
-                                Text(s.date, style: .date)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                            
-                            if let ammo = s.ammo {
-                                        Text(ammo.displayName)
-                                            .font(.footnote)
-                                            .foregroundStyle(.secondary)
-                                    }
+                        NavigationLink {
+                            SessionDetailView(session: s)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text("\(s.rounds) rounds")
+                                        .font(.headline)
+                                    Spacer()
+                                    Text(s.date, style: .date)
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
 
-                            if let notes = s.notes, !notes.isEmpty {
-                                Text(notes)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
+                                if let ammo = s.ammo {
+                                    Text(ammo.displayName)
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                if let notes = s.notes, !notes.isEmpty {
+                                    Text(notes)
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+
+                                // Optional: tiny Pro hints (only if present)
+                                if let seconds = s.durationSeconds, seconds > 0 {
+                                    Text("Range time: \(seconds / 60)m")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                if let m = s.malfunctions, m.total > 0 {
+                                    Text("Malfunctions: \(m.total)")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
+                            .padding(.vertical, 4)
                         }
-                        .padding(.vertical, 4)
                     }
                 }
             }

@@ -21,7 +21,9 @@ struct RoundCountApp: App {
         .modelContainer(for: [
             Firearm.self,
             Session.self,
-            AmmoProduct.self
+            AmmoProduct.self,
+            MalfunctionSummary.self,
+            SessionPhoto.self
         ])
     }
 }

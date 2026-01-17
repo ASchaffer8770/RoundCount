@@ -27,5 +27,5 @@ final class Entitlements: ObservableObject {
     }
 
     // MARK: - Limits (Free tier)
-    var freeFirearmLimit: Int { 3 }
+    var freeFirearmLimit: Int { 1 }
 }
