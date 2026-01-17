@@ -121,26 +121,43 @@ struct FirearmDetailView: View {
                                         .foregroundStyle(.secondary)
                                         .lineLimit(2)
                                 }
+                                
+                                HStack(spacing: 0) {
+                                    indicatorCell(
+                                        systemName: "photo.on.rectangle.angled",
+                                        value: s.photos.isEmpty ? nil : "\(s.photos.count)"
+                                    )
 
-                                // Optional: tiny Pro hints (only if present)
-                                if let seconds = s.durationSeconds, seconds > 0 {
-                                    Text("Range time: \(seconds / 60)m")
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
-                                }
+                                    indicatorCell(
+                                        systemName: "exclamationmark.triangle",
+                                        value: (s.malfunctions?.total ?? 0) > 0 ? "\(s.malfunctions!.total)" : nil
+                                    )
 
-                                if let m = s.malfunctions, m.total > 0 {
-                                    Text("Malfunctions: \(m.total)")
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
+                                    indicatorCell(
+                                        systemName: "timer",
+                                        value: (s.durationSeconds ?? 0) > 0
+                                            ? "\(max(1, (s.durationSeconds ?? 0) / 60))m"
+                                            : nil
+                                    )
                                 }
+                                .frame(maxWidth: .infinity)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 6)
                             }
-                            .padding(.vertical, 4)
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 12)
+                            .neonCard(cornerRadius: 16, intensity: 0.35)
                         }
+                        .buttonStyle(.plain)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                     }
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .listStyle(.insetGrouped)
         .navigationTitle("Details")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -166,5 +183,19 @@ struct FirearmDetailView: View {
             AddFirearmView(editingFirearm: firearm)
         }
     }
+    
+    @ViewBuilder
+    private func indicatorCell(systemName: String, value: String?) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemName)
+                .font(.footnote)
+
+            Text(value ?? "—")
+                .monospacedDigit()
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .opacity(value == nil ? 0.3 : 1.0)
+    }
+
 }
 

@@ -10,6 +10,9 @@ import SwiftUI
 struct SessionDetailView: View {
     let session: Session
     @EnvironmentObject private var entitlements: Entitlements
+    
+    @State private var showViewer = false
+    @State private var viewerStartIndex = 0
 
     var body: some View {
         List {
@@ -66,8 +69,17 @@ struct SessionDetailView: View {
                     } else {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 12) {
-                                ForEach(session.photos) { p in
-                                    SessionPhotoThumb(photo: p)
+                                ForEach(Array(session.photos.enumerated()), id: \.element.id) { idx, p in
+                                    Button {
+                                        viewerStartIndex = idx
+                                        showViewer = true
+                                    } label: {
+                                        SessionPhotoThumb(photo: p)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .sheet(isPresented: $showViewer) {
+                                        SessionPhotoViewerView(photos: session.photos, startIndex: viewerStartIndex)
+                                    }
                                 }
                             }
                             .padding(.vertical, 6)
@@ -88,7 +100,7 @@ struct SessionDetailView: View {
                 }
             }
         }
-        .navigationTitle("Session")
+        .navigationTitle(session.date.formatted(date: .abbreviated, time: .omitted))
     }
 
     // MARK: - UI helpers
