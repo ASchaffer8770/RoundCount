@@ -25,6 +25,30 @@ struct SessionDetailView: View {
                     row("Ammo", ammo.displayName)
                 }
             }
+            
+            // Pro: Setup used
+            Section("Setup") {
+                if entitlements.isPro {
+                    if let setup = session.setup {
+                        row("Used", setup.name)
+                        ForEach(setup.gear.prefix(2)) { g in
+                            Text("• \(g.type.label): \(g.displayName)")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        if setup.gear.count > 2 {
+                            Text("• +\(setup.gear.count - 2) more")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Text("No setup selected.")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    lockedRow("Setup tracking is a Pro feature.")
+                }
+            }
 
             // Pro: Range time
             Section("Range Time") {

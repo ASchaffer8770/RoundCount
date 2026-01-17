@@ -10,6 +10,7 @@ final class Session {
 
     @Relationship var firearm: Firearm
     @Relationship var ammo: AmmoProduct?
+    @Relationship var setup: FirearmSetup?
 
     // ✅ Session v2 (Pro)
     var durationSeconds: Int?
@@ -24,7 +25,8 @@ final class Session {
         date: Date,
         notes: String?,
         durationSeconds: Int? = nil,
-        malfunctions: MalfunctionSummary? = nil
+        malfunctions: MalfunctionSummary? = nil,
+        setup: FirearmSetup? = nil
     ) {
         self.id = UUID()
         self.firearm = firearm
@@ -34,5 +36,6 @@ final class Session {
         self.notes = notes
         self.durationSeconds = durationSeconds
         self.malfunctions = malfunctions
+        self.setup = setup
     }
 }

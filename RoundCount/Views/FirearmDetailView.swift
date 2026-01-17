@@ -15,6 +15,7 @@ struct FirearmDetailView: View {
 
     @State private var showEdit = false
     @State private var showLog = false
+    @State private var showAddSetup = false
 
     init(firearm: Firearm) {
         self.firearm = firearm
@@ -88,7 +89,55 @@ struct FirearmDetailView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            
+            Section("Setups") {
+                if firearm.setups.isEmpty {
+                    Text("No setups yet.")
+                        .foregroundStyle(.secondary)
 
+                    Button {
+                        showAddSetup = true
+                    } label: {
+                        Label("Add Setup", systemImage: "plus.circle.fill")
+                    }
+                } else {
+                    ForEach(firearm.setups.sorted { ($0.isActive ? 0 : 1, $0.createdAt) < ($1.isActive ? 0 : 1, $1.createdAt) }) { setup in
+                        NavigationLink {
+                            SetupDetailView(firearm: firearm, setup: setup)
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 8) {
+                                        Text(setup.name)
+                                            .font(.headline)
+
+                                        if setup.isActive {
+                                            Text("Active")
+                                                .font(.caption)
+                                                .padding(.horizontal, 8)
+                                                .padding(.vertical, 3)
+                                                .background(.thinMaterial)
+                                                .clipShape(Capsule())
+                                        }
+                                    }
+
+                                    Text("\(setup.gear.count) gear item\(setup.gear.count == 1 ? "" : "s")")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+                            }
+                        }
+                    }
+
+                    Button {
+                        showAddSetup = true
+                    } label: {
+                        Label("Add Setup", systemImage: "plus")
+                    }
+                }
+            }
 
             Section("Sessions") {
                 if sessions.isEmpty {
@@ -181,6 +230,9 @@ struct FirearmDetailView: View {
         }
         .sheet(isPresented: $showEdit) {
             AddFirearmView(editingFirearm: firearm)
+        }
+        .sheet(isPresented: $showAddSetup) {
+            AddSetupView(firearm: firearm)
         }
     }
     

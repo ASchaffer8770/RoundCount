@@ -37,6 +37,8 @@ struct LogSessionView: View {
     @State private var showAddFirearm = false
     @State private var showToast = false
     @State private var toastText = "Session logged"
+    @State private var selectedSetup: FirearmSetup?
+    @State private var showPaywall = false
 
     init(preselectedFirearm: Firearm? = nil, isModal: Bool = false) {
         self.preselectedFirearm = preselectedFirearm
@@ -75,6 +77,8 @@ struct LogSessionView: View {
                         }
                     }
                 }
+                
+                setupSection
 
                 Section("Ammo (optional)") {
                     Button {
@@ -123,6 +127,7 @@ struct LogSessionView: View {
                             title: "Pro Session Upgrades",
                             subtitle: "Add photos, track malfunctions, and log total range time."
                         )
+                        PaywallView(sourceFeature: .sessionUpgrades)
                     }
                 }
 
@@ -183,6 +188,9 @@ struct LogSessionView: View {
             .sheet(isPresented: $showMalfunctionEditor) {
                 MalfunctionEditorView(draft: $malfunctionDraft)
             }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView(sourceFeature: .firearmSetups)
+            }
             .onAppear {
                 // Prioritize preselected firearm (if present)
                 if selectedFirearm == nil {
@@ -197,9 +205,64 @@ struct LogSessionView: View {
                 guard entitlements.isPro else { return }
                 Task { await loadPickedPhotos(newItems) }
             }
+            .onChange(of: selectedFirearm?.id) { _, _ in
+                guard entitlements.isPro else { return }
+                if let firearm = selectedFirearm {
+                    selectedSetup = firearm.setups.first(where: { $0.isActive }) ?? firearm.setups.first
+                } else {
+                    selectedSetup = nil
+                }
+            }
+        }
+    }
+    
+    private var setupSection: some View {
+        Section("Setup") {
+            if entitlements.isPro {
+                if let firearm = selectedFirearm {
+                    setupPicker(for: firearm)
+                } else {
+                    Text("Select a firearm first.")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Button { showPaywall = true } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Track Setup Used")
+                            Text("Log sessions against firearm setups (optic/light/etc.).")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "lock.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
+    @ViewBuilder
+    private func setupPicker(for firearm: Firearm) -> some View {
+        let setups = setupsFor(firearm)
+
+        if setups.isEmpty {
+            Text("No setups for this firearm yet.")
+                .foregroundStyle(.secondary)
+        } else {
+            Picker("Setup", selection: $selectedSetup) {
+                Text("Select…").tag(Optional<FirearmSetup>.none)
+                ForEach(setups) { s in
+                    Text(s.isActive ? "\(s.name) (Active)" : s.name)
+                        .tag(Optional(s))
+                }
+            }
+        }
+    }
+
+    
     // MARK: - Pro UI rows
 
     private var rangeTimeRow: some View {
@@ -327,7 +390,8 @@ struct LogSessionView: View {
             date: sessionDate,
             notes: trimmed.isEmpty ? nil : trimmed,
             durationSeconds: entitlements.isPro ? computedDurationSeconds : nil,
-            malfunctions: nil
+            malfunctions: nil,
+            setup: entitlements.isPro ? selectedSetup : nil
         )
 
         // Pro: malfunctions
@@ -426,4 +490,12 @@ struct LogSessionView: View {
             }
         }
     }
+    
+    private func setupsFor(_ firearm: Firearm) -> [FirearmSetup] {
+        firearm.setups.sorted {
+            if $0.isActive != $1.isActive { return $0.isActive && !$1.isActive }
+            return $0.createdAt > $1.createdAt
+        }
+    }
+
 }

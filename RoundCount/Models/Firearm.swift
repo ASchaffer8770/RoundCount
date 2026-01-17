@@ -16,6 +16,8 @@ enum FirearmClass: String, CaseIterable, Identifiable {
 final class Firearm {
     @Attribute(.unique) var id: UUID
 
+    @Relationship(deleteRule: .cascade) var setups: [FirearmSetup] = []
+    
     // Identity
     var brand: String
     var model: String

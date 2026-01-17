@@ -14,6 +14,8 @@ enum Feature: String, CaseIterable, Identifiable {
     case dataExport
     case ammoInventory
     case barcodeScan
+    case sessionUpgrades
+    case firearmSetups
 
     var id: String { rawValue }
 
@@ -25,6 +27,8 @@ enum Feature: String, CaseIterable, Identifiable {
         case .dataExport: return "Export (CSV/PDF)"
         case .ammoInventory: return "Ammo Inventory"
         case .barcodeScan: return "Barcode Scanning"
+        case .sessionUpgrades: return "Session Upgrades"
+        case .firearmSetups: return "Firearm Setups & Gear"
         }
     }
 
@@ -42,6 +46,10 @@ enum Feature: String, CaseIterable, Identifiable {
             return "Track boxes owned and auto-decrement rounds as you log."
         case .barcodeScan:
             return "Scan ammo barcodes to quickly add products and inventory."
+        case .sessionUpgrades:
+            return "Add photos, track malfunctions, and log total range time."
+        case .firearmSetups:
+            return "Create setups per firearm (optic/light/etc.) and track battery life."
         }
     }
 }
