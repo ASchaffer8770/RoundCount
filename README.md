@@ -1,8 +1,8 @@
 # RoundCount 🎯
 
-**RoundCount** is an iOS app for tracking firearms, range sessions, ammo usage, and gear setups — built with a strong focus on **real-world shooting**, **data ownership**, and a clean, modern UX.
+**RoundCount** is a local-first iOS app for tracking firearms, range sessions, ammo usage, and gear setups — built for **real-world shooters** who want clean data, fast logging, and meaningful insights without cloud lock-in.
 
-The app is designed with a **Free tier** for casual shooters and a **Pro tier** for competitors, instructors, and serious enthusiasts who want deeper insights into their training.
+The app offers a **Free tier** for casual shooters and a **Pro tier** for competitors, instructors, and serious enthusiasts who want deeper analytics and long-term training insight.
 
 ---
 
@@ -14,16 +14,40 @@ The app is designed with a **Free tier** for casual shooters and a **Pro tier** 
 - Track total rounds per firearm
 - Review session history per firearm
 
-### Pro (In Progress / Shipping)
+### Pro
 - Session photos (stored locally, on-device)
 - Malfunction tracking (categorized + totals)
 - Total range time per session
 - Firearm setups (optic / light / gear configurations)
-- Session → Setup linkage (review what setup was used)
-- Branded UI with subtle neon glow cards
-- Future analytics, maintenance, and exports
+- Session → Setup linkage
+- Analytics dashboards (global + per-firearm)
+- Branded UI with subtle neon card styling
 
-> **Privacy-first:** All data is stored locally on-device. No cloud, no accounts, no tracking.
+> **Privacy-first:** All data is stored locally on-device.  
+> No accounts. No cloud. No tracking.
+
+---
+
+## 📊 Analytics (Pro)
+
+RoundCount Pro includes **local, on-device analytics** designed to answer practical questions shooters actually care about:
+
+### Dashboard Analytics
+- Total rounds fired
+- Total range time
+- Malfunctions per 1k rounds
+- Rounds over time (range-selectable)
+- Top setups by usage
+- Top ammo by rounds fired
+
+### Per-Firearm Analytics
+- Firearm-specific round totals
+- Daily & weekly round trends
+- Setup usage breakdown
+- Malfunction rates per firearm
+- Time-range filtering (7D / 30D / 90D / 1Y / All)
+
+Analytics are computed from **immutable snapshots** to ensure performance and avoid UI render loops.
 
 ---
 
@@ -31,6 +55,7 @@ The app is designed with a **Free tier** for casual shooters and a **Pro tier** 
 
 - **Language:** Swift
 - **UI:** SwiftUI
+- **Charts:** Swift Charts + custom lightweight charts
 - **Persistence:** SwiftData
 - **Architecture:** Local-first, model-driven
 - **Platform:** iOS
@@ -40,9 +65,12 @@ The app is designed with a **Free tier** for casual shooters and a **Pro tier** 
 
 ## 📌 Project Status
 
-**Current version:** Internal MVP  
-**Target public v1.0:** ~March 15, 2026
+- **Current version:** `0.9.0 (1)`
+- **Status:** Internal TestFlight (Phase 1)
+- **Target public v1.0:** ~March 15, 2026
 
+This build is feature-complete for core logging, setups, and analytics.  
+Ongoing work is focused on polish, battery lifecycle tracking, and maintenance features.
 
 ---
 
@@ -76,17 +104,17 @@ The app is designed with a **Free tier** for casual shooters and a **Pro tier** 
 
 ---
 
-### 🔜 Phase 3 — Gear & Battery Lifecycle (In Progress)
-- [ ] Setup CRUD UI (add / edit / delete)
-- [ ] Gear items (optic, light, etc.)
-- [ ] Battery tracking (install date, life)
-- [ ] Mark battery changes
-- [ ] Derived stats (days / rounds since change)
+### 🟡 Phase 3 — Analytics & Battery Foundations (In Progress)
+- [x] Dashboard analytics (global)
+- [x] Per-firearm analytics
+- [x] Time-range filtering
+- [x] Snapshot-based analytics engine
+- [ ] Gear battery lifecycle tracking
+- [ ] Days / rounds since battery change
 
 ---
 
-### 🔜 Phase 4 — Analytics & Maintenance
-- [ ] Advanced analytics (malfunctions per 1k rounds, trends)
+### 🔜 Phase 4 — Maintenance & Export
 - [ ] Maintenance reminders (round-based + time-based)
 - [ ] CSV / PDF export
 - [ ] Ammo inventory integration
@@ -96,16 +124,16 @@ The app is designed with a **Free tier** for casual shooters and a **Pro tier** 
 ### 🔮 Phase 5 — Target Analysis (Future / R&D)
 - [ ] Target photo capture
 - [ ] Grouping pattern detection
-- [ ] Technique suggestions (conservative, non-prescriptive)
+- [ ] Conservative technique insights (non-prescriptive)
 
 ---
 
 ## 🧠 Design Philosophy
 
-- **Local-first**: Your data stays on your device
-- **Fast logging**: Minimal friction at the range
-- **Reviewable history**: Sessions are only useful if you can review them
-- **No fluff**: Features exist because shooters actually use them
+- **Local-first** — your data stays on your device
+- **Fast logging** — minimal friction at the range
+- **Reviewable history** — sessions only matter if you can review them
+- **No fluff** — features exist because shooters actually use them
 
 ---
 
@@ -119,4 +147,3 @@ It does **not** provide firearms advice, safety instruction, or tactical guidanc
 ## 📄 License
 
 MIT License — see `LICENSE` for details.
-
