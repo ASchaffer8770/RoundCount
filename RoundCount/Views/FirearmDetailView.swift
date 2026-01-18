@@ -13,15 +13,21 @@ struct FirearmDetailView: View {
 
     @Query private var sessions: [Session]
 
+    @EnvironmentObject private var entitlements: Entitlements
+
     @State private var showEdit = false
     @State private var showLog = false
     @State private var showAddSetup = false
+    @State private var analyticsPayload: [SessionSnapshot] = []
+
+    // Analytics nav + paywall
+    @State private var showFirearmAnalytics = false
+    @State private var showAnalyticsPaywall = false
 
     init(firearm: Firearm) {
         self.firearm = firearm
 
-        let firearmId = firearm.id   // capture as plain UUID value
-
+        let firearmId = firearm.id
         self._sessions = Query(
             filter: #Predicate<Session> { $0.firearm.id == firearmId },
             sort: [SortDescriptor(\Session.date, order: .reverse)]
@@ -29,6 +35,30 @@ struct FirearmDetailView: View {
     }
 
     var body: some View {
+        content
+            // ✅ Attach these OUTSIDE the List (non-lazy container)
+            .navigationDestination(isPresented: $showFirearmAnalytics) {
+                FirearmAnalyticsScreen(
+                    title: firearm.displayName,
+                    sessions: analyticsPayload
+                )
+            }
+            .sheet(isPresented: $showAnalyticsPaywall) {
+                PaywallView(sourceFeature: .advancedAnalytics)
+                    .environmentObject(entitlements)
+            }
+            .sheet(isPresented: $showLog) {
+                LogSessionView(preselectedFirearm: firearm, isModal: true)
+            }
+            .sheet(isPresented: $showEdit) {
+                AddFirearmView(editingFirearm: firearm)
+            }
+            .sheet(isPresented: $showAddSetup) {
+                AddSetupView(firearm: firearm)
+            }
+    }
+
+    private var content: some View {
         List {
             Section("Overview") {
                 HStack {
@@ -52,7 +82,6 @@ struct FirearmDetailView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                // Serial number (optional)
                 if let sn = firearm.serialNumber, !sn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     HStack {
                         Text("Serial")
@@ -62,7 +91,6 @@ struct FirearmDetailView: View {
                     }
                 }
 
-                // Purchase date (optional)
                 if let purchased = firearm.purchaseDate {
                     HStack {
                         Text("Purchased")
@@ -72,7 +100,6 @@ struct FirearmDetailView: View {
                     }
                 }
 
-                // Last used date (optional)
                 if let lastUsed = firearm.lastUsedDate {
                     HStack {
                         Text("Last used")
@@ -89,7 +116,36 @@ struct FirearmDetailView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            
+
+            Section("Analytics") {
+                Button {
+                    if entitlements.isPro {
+                        Task { @MainActor in
+                            analyticsPayload = sessions.map(SessionSnapshot.init)
+                            showFirearmAnalytics = true
+                        }
+                    } else {
+                        showAnalyticsPaywall = true
+                    }
+                } label: {
+                    HStack {
+                        Label("View Analytics", systemImage: "chart.bar.xaxis")
+                        Spacer()
+                        if !entitlements.isPro {
+                            Image(systemName: "lock.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if !entitlements.isPro {
+                    Text("Upgrade to Pro to unlock analytics.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("Setups") {
                 if firearm.setups.isEmpty {
                     Text("No setups yet.")
@@ -101,7 +157,12 @@ struct FirearmDetailView: View {
                         Label("Add Setup", systemImage: "plus.circle.fill")
                     }
                 } else {
-                    ForEach(firearm.setups.sorted { ($0.isActive ? 0 : 1, $0.createdAt) < ($1.isActive ? 0 : 1, $1.createdAt) }) { setup in
+                    ForEach(
+                        firearm.setups.sorted {
+                            if $0.isActive != $1.isActive { return $0.isActive && !$1.isActive }
+                            return $0.createdAt > $1.createdAt
+                        }
+                    ) { setup in
                         NavigationLink {
                             SetupDetailView(firearm: firearm, setup: setup)
                         } label: {
@@ -170,7 +231,7 @@ struct FirearmDetailView: View {
                                         .foregroundStyle(.secondary)
                                         .lineLimit(2)
                                 }
-                                
+
                                 HStack(spacing: 0) {
                                     indicatorCell(
                                         systemName: "photo.on.rectangle.angled",
@@ -225,17 +286,8 @@ struct FirearmDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: $showLog) {
-            LogSessionView(preselectedFirearm: firearm, isModal: true)
-        }
-        .sheet(isPresented: $showEdit) {
-            AddFirearmView(editingFirearm: firearm)
-        }
-        .sheet(isPresented: $showAddSetup) {
-            AddSetupView(firearm: firearm)
-        }
     }
-    
+
     @ViewBuilder
     private func indicatorCell(systemName: String, value: String?) -> some View {
         HStack(spacing: 6) {
@@ -248,6 +300,4 @@ struct FirearmDetailView: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .opacity(value == nil ? 0.3 : 1.0)
     }
-
 }
-

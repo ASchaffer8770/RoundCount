@@ -8,6 +8,10 @@ enum UserTier: String, Codable {
 
 @MainActor
 final class Entitlements: ObservableObject {
+    
+    static let allowBetaProToggle = true
+    static let allowBetaProPurchase = true
+
 
     // This drives UI updates automatically
     @Published private(set) var tier: UserTier = .free

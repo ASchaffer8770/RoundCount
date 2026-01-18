@@ -15,6 +15,8 @@ struct DashboardView: View {
     @State private var paywallFeature: Feature? = nil
     @State private var gateMessage: String? = nil
     @State private var showGateAlert = false
+    @State private var showAnalytics = false
+    @State private var showSettings = false
 
     @Query(sort: \Firearm.createdAt, order: .reverse) private var firearms: [Firearm]
     @Query(sort: \Session.date, order: .reverse) private var sessions: [Session]
@@ -69,6 +71,11 @@ struct DashboardView: View {
                         entitlements.setTier(entitlements.isPro ? .free : .pro)
                     }
                     .buttonStyle(.bordered)
+                    Button {
+                                showSettings = true
+                            } label: {
+                                Image(systemName: "gearshape")
+                            }
                 }
             }
             .sheet(isPresented: $showLog) {
@@ -77,8 +84,17 @@ struct DashboardView: View {
             .sheet(isPresented: $showAddFirearm) {
                 AddFirearmView()
             }
+            .sheet(isPresented: $showAnalytics) {
+                NavigationStack {
+                    AnalyticsDashboardView()
+                }
+            }
             .sheet(isPresented: $showPaywall) {
                 PaywallView(sourceFeature: paywallFeature)
+                    .environmentObject(entitlements)
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
                     .environmentObject(entitlements)
             }
 
@@ -159,45 +175,62 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.borderedProminent)
 
-                HStack(spacing: 10) {
-                    Button {
-                        let result = gateAddFirearm()
-                        switch result {
-                        case .allowed:
-                            showAddFirearm = true
-
-                        case .requiresPro(let feature):
-                            paywallFeature = feature
-                            showPaywall = true
-
-                        case .limitReached(let feature, let message):
-                            gateMessage = message
-                            paywallFeature = feature
-                            showGateAlert = true
+                VStack(spacing: 10) {
+                    HStack(spacing: 10) {
+                        Button {
+                            let result = gateAddFirearm()
+                            switch result {
+                            case .allowed:
+                                showAddFirearm = true
+                            case .requiresPro(let feature):
+                                paywallFeature = feature
+                                showPaywall = true
+                            case .limitReached(let feature, let message):
+                                gateMessage = message
+                                paywallFeature = feature
+                                showGateAlert = true
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "scope")
+                                Text("Add firearm")
+                                Spacer()
+                            }
+                            .padding()
                         }
-                    } label: {
-                        HStack {
-                            Image(systemName: "scope")
-                            Text("Add firearm")
-                            Spacer()
+                        .buttonStyle(.bordered)
+
+                        NavigationLink {
+                            FirearmsView()
+                        } label: {
+                            HStack {
+                                Image(systemName: "list.bullet")
+                                Text("View firearms")
+                                Spacer()
+                            }
+                            .padding()
                         }
-                        .padding()
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
 
-
-                    NavigationLink {
-                        FirearmsView()
+                    Button {
+                        gateOpenAnalytics()
                     } label: {
                         HStack {
-                            Image(systemName: "list.bullet")
-                            Text("View firearms")
+                            Image(systemName: "chart.bar.xaxis")
+                            Text("Analytics (Pro)")
                             Spacer()
+                            if !entitlements.isPro {
+                                Image(systemName: "lock.fill")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         .padding()
                     }
                     .buttonStyle(.bordered)
                 }
+
             }
         }
     }
@@ -213,6 +246,17 @@ struct DashboardView: View {
         }
 
         return .allowed
+    }
+    
+    private func gateOpenAnalytics() {
+        if entitlements.isPro {
+            showAnalytics = true
+            return
+        }
+
+        paywallFeature = .advancedAnalytics
+        gateMessage = "Analytics is a Pro feature. Upgrade to unlock trends, breakdowns, and performance insights."
+        showGateAlert = true
     }
 
     private var recentActivity: some View {

@@ -200,6 +200,13 @@ struct LogSessionView: View {
                         selectedFirearm = firearms.first
                     }
                 }
+
+                // Ensure setup defaults correctly on first load (Pro only)
+                if entitlements.isPro, let firearm = selectedFirearm {
+                    selectedSetup = firearm.setups.first(where: { $0.isActive }) ?? firearm.setups.first
+                } else {
+                    selectedSetup = nil
+                }
             }
             .onChange(of: photoPickerItems) { _, newItems in
                 guard entitlements.isPro else { return }
@@ -249,7 +256,7 @@ struct LogSessionView: View {
         let setups = setupsFor(firearm)
 
         if setups.isEmpty {
-            Text("No setups for this firearm yet.")
+            Text("No setups for this firearm yet. Add one from the firearm details page.")
                 .foregroundStyle(.secondary)
         } else {
             Picker("Setup", selection: $selectedSetup) {
@@ -391,7 +398,9 @@ struct LogSessionView: View {
             notes: trimmed.isEmpty ? nil : trimmed,
             durationSeconds: entitlements.isPro ? computedDurationSeconds : nil,
             malfunctions: nil,
-            setup: entitlements.isPro ? selectedSetup : nil
+            setup: entitlements.isPro
+                ? (selectedSetup ?? firearm.setups.first(where: { $0.isActive }) ?? firearm.setups.first)
+                : nil
         )
 
         // Pro: malfunctions
