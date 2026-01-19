@@ -9,7 +9,7 @@ import SwiftUI
 import SwiftData
 
 struct FirearmDetailView: View {
-    let firearm: Firearm
+    @Bindable var firearm: Firearm
 
     @Query private var sessions: [Session]
 

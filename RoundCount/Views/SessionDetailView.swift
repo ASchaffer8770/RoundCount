@@ -6,9 +6,10 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct SessionDetailView: View {
-    let session: Session
+    @Bindable var session: Session
     @EnvironmentObject private var entitlements: Entitlements
     
     @State private var showViewer = false
@@ -101,12 +102,12 @@ struct SessionDetailView: View {
                                         SessionPhotoThumb(photo: p)
                                     }
                                     .buttonStyle(.plain)
-                                    .sheet(isPresented: $showViewer) {
-                                        SessionPhotoViewerView(photos: session.photos, startIndex: viewerStartIndex)
-                                    }
                                 }
                             }
                             .padding(.vertical, 6)
+                        }
+                        .sheet(isPresented: $showViewer) {
+                            SessionPhotoViewerView(photos: session.photos, startIndex: viewerStartIndex)
                         }
                     }
                 } else {
