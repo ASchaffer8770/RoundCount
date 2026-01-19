@@ -61,21 +61,25 @@ struct DashboardView: View {
             }
             .navigationTitle("RoundCount")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+
                     Button {
                         showLog = true
                     } label: {
-                        Label("Log Session", systemImage: "plus.circle.fill")
+                        Image(systemName: "plus.circle.fill")
                     }
-                    Button(entitlements.isPro ? "Disable Pro (Dev)" : "Enable Pro (Dev)") {
+
+                    // Keep this ONLY for internal TestFlight / debug.
+                    Button(entitlements.isPro ? "Pro: On" : "Pro: Off") {
                         entitlements.setTier(entitlements.isPro ? .free : .pro)
                     }
                     .buttonStyle(.bordered)
-                    Button {
-                                showSettings = true
-                            } label: {
-                                Image(systemName: "gearshape")
-                            }
                 }
             }
             .sheet(isPresented: $showLog) {

@@ -29,7 +29,7 @@ struct SettingsView: View {
                             entitlements.setTier(entitlements.isPro ? .free : .pro)
                         } label: {
                             HStack {
-                                Text(entitlements.isPro ? "Enable Pro Features (Beta)" : "Disable Pro Features (Beta)")
+                                Text(entitlements.isPro ? "Disable Pro Features (Beta)" : "Enable Pro Features (Beta)")
                                 Spacer()
                                 Image(systemName: "sparkles")
                                     .foregroundStyle(.secondary)
