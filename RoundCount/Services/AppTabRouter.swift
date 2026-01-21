@@ -17,6 +17,7 @@ import Combine
 enum AppTab: Hashable {
     case dashboard
     case firearms
+    case ammo
     case live
     case settings
 }

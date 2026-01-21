@@ -4,6 +4,7 @@
 //
 //  Created by Alex Schaffer on 1/19/26.
 //
+
 import Foundation
 import SwiftData
 
@@ -14,6 +15,10 @@ final class FirearmRun {
     @Relationship var firearm: Firearm
     @Relationship var session: SessionV2
 
+    // Ammo
+    @Relationship var ammo: AmmoProduct?
+    @Relationship var defaultAmmo: AmmoProduct?
+
     var startedAt: Date
     var endedAt: Date?
 
@@ -21,10 +26,7 @@ final class FirearmRun {
     var malfunctionsCount: Int
     var notes: String?
 
-    // ✅ NEW: selected mag for this run (persisted)
     @Relationship var selectedMagazine: FirearmMagazine?
-
-    // ✅ NEW: malfunction breakdown (persisted)
     @Relationship(deleteRule: .cascade) var malfunctions: [RunMalfunction] = []
 
     init(
@@ -46,10 +48,19 @@ final class FirearmRun {
         self.notes = notes
         self.session = session
         self.selectedMagazine = selectedMagazine
+
+        // ✅ Ensure relationships are initialized
+        self.ammo = nil
+        self.defaultAmmo = nil
     }
 
     var durationSeconds: Int {
         let end = endedAt ?? Date()
         return max(0, Int(end.timeIntervalSince(startedAt)))
+    }
+
+    // ✅ UI convenience
+    var ammoDisplayLabel: String {
+        ammo?.displayName ?? "—"
     }
 }

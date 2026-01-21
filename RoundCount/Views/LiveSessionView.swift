@@ -240,6 +240,11 @@ struct LiveSessionView: View {
     @EnvironmentObject private var entitlements: Entitlements
     @EnvironmentObject private var tabRouter: AppTabRouter
     @Query(sort: \Firearm.createdAt, order: .reverse) private var firearms: [Firearm]
+    @Query(sort: \AmmoProduct.createdAt, order: .reverse)
+    private var ammoLibrary: [AmmoProduct]
+    
+    @State private var showAmmoPicker = false
+    @State private var ammoPickerRunID: UUID? = nil
 
     @StateObject private var vm = LiveSessionVM()
 
@@ -351,6 +356,39 @@ struct LiveSessionView: View {
                     }
                 )
             }
+            .sheet(isPresented: $showAmmoPicker) {
+                AmmoPickerSheet(
+                    ammo: ammoLibrary,
+                    selectedID: ammoPickerRunID.flatMap { rid in
+                        vm.runs.first(where: { $0.id == rid })?.ammo?.id
+                    },
+                    onPick: { picked in
+                        guard let rid = ammoPickerRunID else { return }
+                        vm.updateRun(rid, modelContext: modelContext) { r in
+                            r.ammo = picked
+                            // Optional: remember a "default" for this run (future use)
+                            r.defaultAmmo = picked
+                        }
+                        ammoPickerRunID = nil
+                        showAmmoPicker = false
+                        haptic(.light)
+                    },
+                    onClear: {
+                        guard let rid = ammoPickerRunID else { return }
+                        vm.updateRun(rid, modelContext: modelContext) { r in
+                            r.ammo = nil
+                        }
+                        ammoPickerRunID = nil
+                        showAmmoPicker = false
+                        haptic(.light)
+                    },
+                    onCancel: {
+                        ammoPickerRunID = nil
+                        showAmmoPicker = false
+                    }
+                )
+            }
+
             .onAppear {
                 consumePendingLiveStartIfNeeded()
             }
@@ -497,6 +535,7 @@ struct LiveSessionView: View {
 
                 if let run = vm.activeRun {
                     firearmPickerRow(runID: run.id, selectedFirearmID: run.firearm.id)
+                    ammoPickerRow(run: run)
 
                     VStack(alignment: .leading, spacing: 12) {
                         roundsQuickControl(run: run)
@@ -639,7 +678,9 @@ struct LiveSessionView: View {
             HStack {
                 Text("Rounds: \(run.rounds)")
                 Text("•")
-                Text("Malfunctions: \(run.malfunctionsCount)")
+                Text("MF: \(run.malfunctionsCount)")
+                Text("•")
+                Text("Ammo: \(run.ammoDisplayLabel)")
                 Text("•")
                 Text("Time: \(formatDuration(TimeInterval(run.durationSeconds)))")
             }
@@ -794,6 +835,33 @@ struct LiveSessionView: View {
                 }
             }
             .pickerStyle(.menu)
+        }
+    }
+    
+    //MARK: - Ammo Picker
+    private func ammoPickerRow(run: FirearmRun) -> some View {
+        HStack {
+            Text("Ammo")
+            Spacer()
+
+            Button {
+                focusedField = nil
+                ammoPickerRunID = run.id
+                showAmmoPicker = true
+                haptic(.light)
+            } label: {
+                HStack(spacing: 6) {
+                    Text(run.ammoDisplayLabel)
+                        .foregroundStyle(run.ammo == nil ? .secondary : .primary)
+                        .lineLimit(1)
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .opacity(0.6)
+                }
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -1014,6 +1082,95 @@ private struct FirearmPickerSheet: View {
         }
     }
 }
+
+private struct AmmoPickerSheet: View {
+    let ammo: [AmmoProduct]
+    let selectedID: UUID?
+    let onPick: (AmmoProduct) -> Void
+    let onClear: () -> Void
+    let onCancel: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query: String = ""
+
+    private var filtered: [AmmoProduct] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return ammo }
+        return ammo.filter { a in
+            a.displayName.localizedCaseInsensitiveContains(q)
+            || a.brand.localizedCaseInsensitiveContains(q)
+            || a.caliber.localizedCaseInsensitiveContains(q)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button(role: .destructive) {
+                        onClear()
+                        dismiss()
+                    } label: {
+                        Label("Clear Ammo", systemImage: "xmark.circle")
+                    }
+                }
+
+                Section("Ammo") {
+                    if filtered.isEmpty {
+                        ContentUnavailableView(
+                            "No matches",
+                            systemImage: "tray.fill",
+                            description: Text("Try another search.")
+                        )
+                    } else {
+                        ForEach(filtered) { a in
+                            Button {
+                                onPick(a)
+                                dismiss()
+                            } label: {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(shortTitle(a))
+                                            .font(.headline)
+                                            .lineLimit(1)
+
+                                        Text(a.displayName)
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                    }
+
+                                    Spacer()
+
+                                    if selectedID == a.id {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Select Ammo")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic))
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { onCancel(); dismiss() }
+                }
+            }
+        }
+    }
+
+    private func shortTitle(_ a: AmmoProduct) -> String {
+        let line = (a.productLine?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+        return line.isEmpty ? a.brand : "\(a.brand) \(line)"
+    }
+}
+
 
 #Preview {
     LiveSessionView().environmentObject(Entitlements())

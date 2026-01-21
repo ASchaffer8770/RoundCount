@@ -29,6 +29,16 @@ struct DashboardView: View {
     @Query(sort: \SessionV2.startedAt, order: .reverse) private var liveSessions: [SessionV2]
 
     // MARK: - Derived (keep these dumb)
+    
+    private var lastActivitySession: SessionV2? {
+        filteredLiveSessions.first
+    }
+
+    private func openLastActivity() {
+        guard let s = lastActivitySession else { return }
+        selectedLiveSessionID = s.id
+        showLiveSummary = true
+    }
 
     private var totalFirearms: Int { firearms.count }
 
@@ -142,9 +152,15 @@ struct DashboardView: View {
                 .font(.title.bold())
 
             if lastActivityDate != nil {
-                Text("Last activity: \(lastActivityDateText)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Button {
+                    openLastActivity()
+                } label: {
+                    Text("Last activity: \(lastActivityDateText)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(lastActivitySession == nil)
             } else {
                 Text("Start a Live Session to begin tracking.")
                     .font(.subheadline)
@@ -177,20 +193,46 @@ struct DashboardView: View {
                 GridItem(.flexible(), spacing: 12)
             ], spacing: 12) {
 
-                StatCard(title: "Firearms", value: "\(totalFirearms)", systemImage: "scope")
-                StatCard(title: "Total rounds", value: "\(totalRounds)", systemImage: "target")
+                // Firearms -> FirearmsView
+                NavigationLink {
+                    FirearmsView()
+                } label: {
+                    StatCard(title: "Firearms", value: "\(totalFirearms)", systemImage: "scope")
+                }
+                .buttonStyle(.plain)
 
-                StatCard(
-                    title: "Most used",
-                    value: mostUsedFirearm?.displayName ?? "—",
-                    systemImage: "flame"
-                )
+                // Total rounds -> AmmoView
+                NavigationLink {
+                    AmmoView()
+                } label: {
+                    StatCard(title: "Total rounds", value: "\(totalRounds)", systemImage: "target")
+                }
+                .buttonStyle(.plain)
 
-                StatCard(
-                    title: "Last activity",
-                    value: lastActivityDate?.formatted(date: .abbreviated, time: .omitted) ?? "—",
-                    systemImage: "clock"
-                )
+                // Most used -> FirearmDetailView (if exists)
+                if let mf = mostUsedFirearm {
+                    NavigationLink {
+                        FirearmDetailView(firearm: mf)
+                    } label: {
+                        StatCard(title: "Most used", value: mf.displayName, systemImage: "flame")
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    StatCard(title: "Most used", value: "—", systemImage: "flame")
+                }
+
+                // Last activity -> latest session summary
+                Button {
+                    openLastActivity()
+                } label: {
+                    StatCard(
+                        title: "Last activity",
+                        value: lastActivityDate?.formatted(date: .abbreviated, time: .omitted) ?? "—",
+                        systemImage: "clock"
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(lastActivitySession == nil)
             }
         }
     }

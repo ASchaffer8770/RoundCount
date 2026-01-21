@@ -19,6 +19,10 @@ struct RootTabView: View {
             FirearmsView()
                 .tabItem { Label("Firearms", systemImage: "scope") }
                 .tag(AppTab.firearms)
+            
+            AmmoView()
+                .tabItem { Label("Ammo", systemImage: "tray.full") }
+                .tag(AppTab.ammo)
 
             LiveSessionView()
                 .tabItem { Label("Live", systemImage: "timer") }
