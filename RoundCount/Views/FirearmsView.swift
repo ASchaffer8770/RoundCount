@@ -32,92 +32,101 @@ struct FirearmsView: View {
     @State private var gateMessage: String? = nil
     @State private var showGateAlert = false
 
+    private func openAddFirearm() {
+        let result = gateAddFirearm()
+        switch result {
+        case .allowed:
+            showAdd = true
+        case .requiresPro(let feature):
+            paywallFeature = feature
+            showPaywall = true
+        case .limitReached(let feature, let message):
+            gateMessage = message
+            paywallFeature = feature
+            showGateAlert = true
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
+                // MARK: Header / Controls (parent card)
                 Section {
-                    if firearms.isEmpty {
-                        ContentUnavailableView(
-                            "No Firearms",
-                            systemImage: "scope",
-                            description: Text("Add your first firearm to start tracking sessions.")
-                        )
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                    } else {
-                        ForEach(firearms) { f in
-                            NavigationLink {
-                                FirearmDetailView(firearm: f)
-                            } label: {
-                                FirearmRowCard(firearm: f)
-                            }
-                            .buttonStyle(.plain)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
-                            .listRowBackground(Color.clear)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button {
-                                    editingFirearm = f
-                                } label: {
-                                    Label("Edit", systemImage: "pencil")
-                                }
-                                .tint(.blue)
+                    firearmsHeaderCard
+                }
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
 
-                                Button(role: .destructive) {
-                                    requestDelete(f)
+                // MARK: Firearms list (parent card)
+                Section {
+                    VStack(alignment: .leading, spacing: Brand.Spacing.s) {
+
+                        if firearms.isEmpty {
+                            VStack(spacing: 12) {
+                                ContentUnavailableView(
+                                    "No Firearms",
+                                    systemImage: "scope",
+                                    description: Text("Add your first firearm to start tracking sessions.")
+                                )
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+
+                                Button {
+                                    openAddFirearm()
                                 } label: {
-                                    Label("Delete", systemImage: "trash")
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "plus.circle.fill")
+                                            .font(.title3)
+                                        Text("Add Firearm")
+                                            .font(.headline)
+                                        Spacer()
+                                    }
+                                    .padding(12)
+                                }
+                                .buttonStyle(.plain)
+                                .surfaceCard(radius: Brand.Radius.m)
+                            }
+                            .surfaceCard(radius: Brand.Radius.m)
+                        } else {
+                            VStack(spacing: 10) {
+                                ForEach(firearms) { f in
+                                    NavigationLink {
+                                        FirearmDetailView(firearm: f)
+                                    } label: {
+                                        FirearmRowCard(firearm: f)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                        Button {
+                                            editingFirearm = f
+                                        } label: {
+                                            Label("Edit", systemImage: "pencil")
+                                        }
+                                        .tint(.blue)
+
+                                        Button(role: .destructive) {
+                                            requestDelete(f)
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                } header: {
-                    // Keep header minimal; section itself will be in an accentCard container.
-                    EmptyView()
+                    .padding(14)
+                    .accentCard(radius: Brand.Radius.l)
                 }
-                .textCase(nil)
                 .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .listRowBackground(Color.clear)
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(Brand.pageBackground(scheme))
             .navigationTitle("Firearms")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        let result = gateAddFirearm()
-                        switch result {
-                        case .allowed:
-                            showAdd = true
-                        case .requiresPro(let feature):
-                            paywallFeature = feature
-                            showPaywall = true
-                        case .limitReached(let feature, let message):
-                            gateMessage = message
-                            paywallFeature = feature
-                            showGateAlert = true
-                        }
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                }
-            }
-            // Wrap the list content in a parent accent card look
-            .safeAreaInset(edge: .top) {
-                // This creates the “parent card” feel without fighting List layout too hard
-                Color.clear
-                    .frame(height: 0)
-            }
-            .overlay(alignment: .top) {
-                // Subtle parent container wash behind the list rows
-                VStack(spacing: 0) {
-                    // Title / meta strip could go here later (counts, filters, etc.)
-                    Spacer().frame(height: 0)
-                }
-            }
-            .padding(.horizontal, Brand.screenPadding) // makes rows align with Dashboard spacing
+
+            // ✅ No toolbar "+" needed
+
             .sheet(isPresented: $showAdd) { AddFirearmView() }
             .sheet(item: $editingFirearm) { f in
                 AddFirearmView(editingFirearm: f)
@@ -146,8 +155,55 @@ struct FirearmsView: View {
                 }
             }
         }
-        // Parent “accent card” framing for the whole screen content
         .background(Brand.pageBackground(scheme))
+    }
+
+    // MARK: - Header card (parent)
+
+    private var firearmsHeaderCard: some View {
+        VStack(alignment: .leading, spacing: Brand.Spacing.s) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Firearms library")
+                    .font(Brand.Typography.section)
+
+                Spacer()
+
+                Text("\(firearms.count)")
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("Add the firearms you shoot so Live sessions can attribute rounds, time, and malfunctions correctly.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                Button {
+                    openAddFirearm()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "plus")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Add Firearm")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        Capsule().fill(Brand.accent.opacity(scheme == .dark ? 0.18 : 0.12))
+                    )
+                    .overlay(
+                        Capsule().strokeBorder(Brand.accent.opacity(scheme == .dark ? 0.35 : 0.25), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+            }
+        }
+        .padding(14)
+        .accentCard(radius: Brand.Radius.l)
     }
 
     // MARK: - Delete (SessionV2 via FirearmRun)

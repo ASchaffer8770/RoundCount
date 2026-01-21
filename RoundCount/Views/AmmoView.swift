@@ -26,6 +26,8 @@ struct AmmoView: View {
     @State private var dashTotals: AmmoDashTotals = .init(rounds: 0, malfunctions: 0, runs: 0)
     @State private var dashRows: [AmmoDashRow] = []
 
+    private func openAddAmmo() { showAdd = true }
+
     private var filtered: [AmmoProduct] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return ammo }
@@ -81,22 +83,65 @@ struct AmmoView: View {
                 // MARK: Ammo library (parent card)
                 Section {
                     VStack(alignment: .leading, spacing: Brand.Spacing.s) {
-                        HStack {
+
+                        // Header + Add button (✅ always available)
+                        HStack(spacing: 10) {
                             Text("Ammo library")
                                 .font(Brand.Typography.section)
+
                             Spacer()
+
+                            Button {
+                                openAddAmmo()
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "plus")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("Add")
+                                        .font(.subheadline.weight(.semibold))
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule()
+                                        .fill(Brand.accent.opacity(scheme == .dark ? 0.18 : 0.12))
+                                )
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(Brand.accent.opacity(scheme == .dark ? 0.35 : 0.25), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
 
                         if filtered.isEmpty {
-                            ContentUnavailableView(
-                                "No Ammo",
-                                systemImage: "shippingbox",
-                                description: Text(searchText.isEmpty
-                                                  ? "Add the ammo you actually buy so Live sessions can attribute malfunctions to a load."
-                                                  : "No matches for “\(searchText)”.")
-                            )
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
+                            VStack(spacing: 12) {
+                                ContentUnavailableView(
+                                    "No Ammo",
+                                    systemImage: "shippingbox",
+                                    description: Text(searchText.isEmpty
+                                                      ? "Add the ammo you actually buy so Live sessions can attribute malfunctions to a load."
+                                                      : "No matches for “\(searchText)”.")
+                                )
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+
+                                // ✅ Primary CTA (fresh install fix)
+                                Button {
+                                    openAddAmmo()
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "plus.circle.fill")
+                                            .font(.title3)
+                                        Text("Add Ammo")
+                                            .font(.headline)
+                                        Spacer()
+                                    }
+                                    .padding(12)
+                                }
+                                .buttonStyle(.plain)
+                                .surfaceCard(radius: Brand.Radius.m)
+                            }
                             .surfaceCard(radius: Brand.Radius.m)
                         } else {
                             VStack(spacing: 10) {
@@ -146,13 +191,11 @@ struct AmmoView: View {
             .background(Brand.pageBackground(scheme))
             .navigationTitle("Ammo")
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showAdd = true } label: { Image(systemName: "plus") }
-                }
-            }
+            // ✅ No toolbar + on purpose
+
             .sheet(isPresented: $showAdd) { AddAmmoView() }
             .sheet(item: $editingAmmo) { a in AddAmmoView(editingAmmo: a) }
+
             .onAppear { recomputeDashboard() }
             .onChange(of: dashRange) { _, _ in recomputeDashboard() }
             .onChange(of: ammo.count) { _, _ in recomputeDashboard() }
@@ -314,15 +357,14 @@ struct AmmoView: View {
         let now = Date()
         let start = dashRange.startDate(reference: now, calendar: cal)
 
-        // Fetch runs that have ammo selected
         let descriptor = FetchDescriptor<FirearmRun>(
             predicate: #Predicate<FirearmRun> { $0.ammo != nil },
             sortBy: [SortDescriptor(\FirearmRun.startedAt, order: .reverse)]
         )
 
-        let runs: [FirearmRun]
+        let fetchedRuns: [FirearmRun]
         do {
-            runs = try modelContext.fetch(descriptor)
+            fetchedRuns = try modelContext.fetch(descriptor)
         } catch {
             print("❌ Ammo dashboard fetch runs failed: \(error)")
             dashTotals = .init(rounds: 0, malfunctions: 0, runs: 0)
@@ -330,13 +372,11 @@ struct AmmoView: View {
             return
         }
 
-        // Filter by time range
         let filteredRuns: [FirearmRun] = {
-            if let start { return runs.filter { $0.startedAt >= start } }
-            return runs
+            if let start { return fetchedRuns.filter { $0.startedAt >= start } }
+            return fetchedRuns
         }()
 
-        // Aggregate by ammo.id
         var totalsRounds = 0
         var totalsMF = 0
 
