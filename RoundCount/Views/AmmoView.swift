@@ -10,6 +10,7 @@ import SwiftData
 
 struct AmmoView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.colorScheme) private var scheme
 
     @Query(sort: \AmmoProduct.createdAt, order: .reverse)
     private var ammo: [AmmoProduct]
@@ -42,7 +43,7 @@ struct AmmoView: View {
         guard let d = ammo.first?.createdAt else { return "—" }
         return d.formatted(date: .abbreviated, time: .omitted)
     }
-    
+
     private func ammoByID(_ id: UUID) -> AmmoProduct? {
         ammo.first(where: { $0.id == id })
     }
@@ -50,49 +51,99 @@ struct AmmoView: View {
     var body: some View {
         NavigationStack {
             List {
-                summarySection
+                // MARK: Summary (parent card)
+                Section {
+                    VStack(alignment: .leading, spacing: Brand.Spacing.s) {
+                        HStack(spacing: 12) {
+                            summaryPill(
+                                title: "Types",
+                                value: "\(ammoTypesCount)",
+                                systemImage: "tag.fill"
+                            )
 
-                // Ammo library
-                if filtered.isEmpty {
-                    ContentUnavailableView(
-                        "No Ammo",
-                        systemImage: "shippingbox",
-                        description: Text(searchText.isEmpty
-                                          ? "Add the ammo you actually buy so Live sessions can attribute malfunctions to a load."
-                                          : "No matches for “\(searchText)”.")
-                    )
-                    .listRowSeparator(.hidden)
-                } else {
-                    Section("Ammo library") {
-                        ForEach(filtered) { a in
-                            NavigationLink {
-                                AmmoDetailView(ammo: a)
-                            } label: {
-                                AmmoRow(ammo: a)
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button {
-                                    editingAmmo = a
-                                } label: {
-                                    Label("Edit", systemImage: "pencil")
-                                }
-                                .tint(.blue)
+                            summaryPill(
+                                title: "Last added",
+                                value: mostRecentText,
+                                systemImage: "clock.fill"
+                            )
+                        }
 
-                                Button(role: .destructive) {
-                                    modelContext.delete(a)
-                                    try? modelContext.save()
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
+                        Text("Select ammo in Live runs to compute malfunction rate per ammo type.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(14)
+                    .accentCard(radius: Brand.Radius.l)
+                }
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+
+                // MARK: Ammo library (parent card)
+                Section {
+                    VStack(alignment: .leading, spacing: Brand.Spacing.s) {
+                        HStack {
+                            Text("Ammo library")
+                                .font(Brand.Typography.section)
+                            Spacer()
+                        }
+
+                        if filtered.isEmpty {
+                            ContentUnavailableView(
+                                "No Ammo",
+                                systemImage: "shippingbox",
+                                description: Text(searchText.isEmpty
+                                                  ? "Add the ammo you actually buy so Live sessions can attribute malfunctions to a load."
+                                                  : "No matches for “\(searchText)”.")
+                            )
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .surfaceCard(radius: Brand.Radius.m)
+                        } else {
+                            VStack(spacing: 10) {
+                                ForEach(filtered) { a in
+                                    NavigationLink {
+                                        AmmoDetailView(ammo: a)
+                                    } label: {
+                                        AmmoRow(ammo: a)
+                                            .padding(12)
+                                            .surfaceCard(radius: Brand.Radius.m)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                        Button {
+                                            editingAmmo = a
+                                        } label: {
+                                            Label("Edit", systemImage: "pencil")
+                                        }
+                                        .tint(.blue)
+
+                                        Button(role: .destructive) {
+                                            modelContext.delete(a)
+                                            try? modelContext.save()
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+                    .padding(14)
+                    .accentCard(radius: Brand.Radius.l)
                 }
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
 
-                // ✅ Ammo Dashboard directly under library
-                ammoDashboardSection
+                // MARK: Ammo Dashboard (parent card)
+                Section {
+                    ammoDashboardCard
+                }
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
-            .listStyle(.insetGrouped)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Brand.pageBackground(scheme))
             .navigationTitle("Ammo")
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
             .toolbar {
@@ -100,12 +151,8 @@ struct AmmoView: View {
                     Button { showAdd = true } label: { Image(systemName: "plus") }
                 }
             }
-            .sheet(isPresented: $showAdd) {
-                AddAmmoView()
-            }
-            .sheet(item: $editingAmmo) { a in
-                AddAmmoView(editingAmmo: a)
-            }
+            .sheet(isPresented: $showAdd) { AddAmmoView() }
+            .sheet(item: $editingAmmo) { a in AddAmmoView(editingAmmo: a) }
             .onAppear { recomputeDashboard() }
             .onChange(of: dashRange) { _, _ in recomputeDashboard() }
             .onChange(of: ammo.count) { _, _ in recomputeDashboard() }
@@ -113,26 +160,12 @@ struct AmmoView: View {
         }
     }
 
-    // MARK: - Summary
-
-    private var summarySection: some View {
-        Section {
-            HStack(spacing: 12) {
-                summaryPill(title: "Types", value: "\(ammoTypesCount)", systemImage: "tag.fill")
-                summaryPill(title: "Last added", value: mostRecentText, systemImage: "clock.fill")
-            }
-            .padding(.vertical, 4)
-
-            Text("Select ammo in Live runs to compute malfunction rate per ammo type.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-    }
+    // MARK: - Summary pill (inner card)
 
     private func summaryPill(title: String, value: String, systemImage: String) -> some View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Brand.iconAccent(scheme))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -150,63 +183,81 @@ struct AmmoView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .surfaceCard(radius: Brand.Radius.m)
     }
 
-    // MARK: - Dashboard
+    // MARK: - Dashboard card (parent)
 
-    private var ammoDashboardSection: some View {
-        Section("Ammo dashboard") {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Range")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+    private var ammoDashboardCard: some View {
+        VStack(alignment: .leading, spacing: Brand.Spacing.s) {
+            HStack {
+                Text("Ammo dashboard")
+                    .font(Brand.Typography.section)
+                Spacer()
+            }
 
-                Picker("Range", selection: $dashRange) {
-                    ForEach(AnalyticsTimeRange.allCases) { r in
-                        Text(r.title).tag(r)
-                    }
+            Text("Range")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            Picker("Range", selection: $dashRange) {
+                ForEach(AnalyticsTimeRange.allCases) { r in
+                    Text(r.title).tag(r)
                 }
-                .pickerStyle(.segmented)
+            }
+            .pickerStyle(.segmented)
 
-                HStack(spacing: 12) {
-                    dashPill(title: "Rounds", value: "\(dashTotals.rounds)", systemImage: "target")
-                    dashPill(title: "MF", value: "\(dashTotals.malfunctions)", systemImage: "exclamationmark.triangle")
-                    dashPill(title: "MF / 1k", value: dashTotals.rounds > 0 ? String(format: "%.1f", dashTotals.malfunctionsPerK) : "—", systemImage: "waveform.path.ecg")
-                }
-                .padding(.top, 4)
+            HStack(spacing: 12) {
+                dashPill(title: "Rounds", value: "\(dashTotals.rounds)", systemImage: "target")
+                dashPill(title: "MF", value: "\(dashTotals.malfunctions)", systemImage: "exclamationmark.triangle")
+                dashPill(
+                    title: "MF / 1k",
+                    value: dashTotals.rounds > 0 ? String(format: "%.1f", dashTotals.malfunctionsPerK) : "—",
+                    systemImage: "waveform.path.ecg"
+                )
+            }
+            .padding(.top, 4)
 
-                if dashRows.isEmpty {
-                    ContentUnavailableView(
-                        "No ammo data yet",
-                        systemImage: "tray.fill",
-                        description: Text("Start a Live session and select ammo on a run. The dashboard will populate automatically.")
-                    )
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                } else {
+            if dashRows.isEmpty {
+                ContentUnavailableView(
+                    "No ammo data yet",
+                    systemImage: "tray.fill",
+                    description: Text("Start a Live session and select ammo on a run. The dashboard will populate automatically.")
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .surfaceCard(radius: Brand.Radius.m)
+            } else {
+                VStack(spacing: 10) {
                     ForEach(dashRows) { row in
                         if let a = ammoByID(row.id) {
                             NavigationLink {
                                 AmmoDetailView(ammo: a)
                             } label: {
                                 ammoDashRow(row)
+                                    .padding(12)
+                                    .surfaceCard(radius: Brand.Radius.m)
                             }
+                            .buttonStyle(.plain)
                         } else {
                             ammoDashRow(row)
+                                .padding(12)
+                                .surfaceCard(radius: Brand.Radius.m)
                         }
                     }
                 }
             }
-            .padding(.vertical, 6)
         }
+        .padding(14)
+        .accentCard(radius: Brand.Radius.l)
     }
+
+    // MARK: - Dashboard inner pill (inner card)
 
     private func dashPill(title: String, value: String, systemImage: String) -> some View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Brand.iconAccent(scheme))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -223,8 +274,7 @@ struct AmmoView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .surfaceCard(radius: Brand.Radius.m)
     }
 
     private func ammoDashRow(_ row: AmmoDashRow) -> some View {
@@ -237,9 +287,9 @@ struct AmmoView: View {
                 statChip("Rounds", "\(row.rounds)")
                 statChip("MF", "\(row.malfunctions)")
                 statChip("MF/1k", row.rounds > 0 ? String(format: "%.1f", row.malfunctionsPerK) : "—")
+                Spacer(minLength: 0)
             }
         }
-        .padding(.vertical, 6)
     }
 
     private func statChip(_ label: String, _ value: String) -> some View {
@@ -253,7 +303,7 @@ struct AmmoView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(.secondary.opacity(0.10))
+        .background(Brand.accent.opacity(scheme == .dark ? 0.12 : 0.10))
         .clipShape(Capsule())
     }
 
@@ -281,12 +331,10 @@ struct AmmoView: View {
         }
 
         // Filter by time range
-        let filteredRuns: [FirearmRun]
-        if let start {
-            filteredRuns = runs.filter { $0.startedAt >= start }
-        } else {
-            filteredRuns = runs
-        }
+        let filteredRuns: [FirearmRun] = {
+            if let start { return runs.filter { $0.startedAt >= start } }
+            return runs
+        }()
 
         // Aggregate by ammo.id
         var totalsRounds = 0
@@ -318,7 +366,6 @@ struct AmmoView: View {
             rows.append(.init(id: id, title: v.title, rounds: v.rounds, malfunctions: v.mf))
         }
 
-        // Sort: most rounds first (then MF)
         rows.sort {
             if $0.rounds != $1.rounds { return $0.rounds > $1.rounds }
             return $0.malfunctions > $1.malfunctions
@@ -374,15 +421,14 @@ private struct AmmoRow: View {
                     .lineLimit(2)
             }
         }
-        .padding(.vertical, 4)
     }
 }
 
 // MARK: - Dashboard Models (local to this file)
 
 private struct AmmoDashRow: Identifiable, Hashable {
-    let id: UUID               // ammo.id
-    let title: String          // ammo.displayName
+    let id: UUID
+    let title: String
     let rounds: Int
     let malfunctions: Int
 

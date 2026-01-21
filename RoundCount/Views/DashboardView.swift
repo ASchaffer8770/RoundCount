@@ -10,6 +10,7 @@ import SwiftData
 
 struct DashboardView: View {
     @EnvironmentObject private var entitlements: Entitlements
+    @Environment(\.colorScheme) private var scheme
 
     @State private var showPaywall = false
     @State private var paywallFeature: Feature? = nil
@@ -24,15 +25,7 @@ struct DashboardView: View {
     @Query(sort: \Firearm.createdAt, order: .reverse) private var firearms: [Firearm]
     @Query(sort: \SessionV2.startedAt, order: .reverse) private var liveSessions: [SessionV2]
 
-    // MARK: - Derived (keep these dumb)
-    
-    private var lastActivitySession: SessionV2? {
-        filteredLiveSessions.first
-    }
-
-    private func openLastActivity() {
-        // no-op now because navigation is done via NavigationLink
-    }
+    // MARK: - Derived
 
     private var totalFirearms: Int { firearms.count }
 
@@ -44,20 +37,13 @@ struct DashboardView: View {
 
     private var filteredLiveSessions: [SessionV2] {
         guard let start = rangeStart else { return liveSessions }
-        var out: [SessionV2] = []
-        out.reserveCapacity(liveSessions.count)
-        for s in liveSessions where s.startedAt >= start {
-            out.append(s)
-        }
-        return out
+        return liveSessions.filter { $0.startedAt >= start }
     }
 
-    private var lastActivityDate: Date? {
-        filteredLiveSessions.first?.startedAt
-    }
+    private var lastActivitySession: SessionV2? { filteredLiveSessions.first }
 
     private var lastActivityDateText: String {
-        guard let d = lastActivityDate else { return "—" }
+        guard let d = lastActivitySession?.startedAt else { return "—" }
         return d.formatted(date: .abbreviated, time: .shortened)
     }
 
@@ -65,37 +51,30 @@ struct DashboardView: View {
         firearms.max(by: { $0.totalRounds < $1.totalRounds })
     }
 
-    // ✅ lightweight list rows
     private var recentLiveRows: [LiveSessionRowVM] {
-        let sessions = Array(filteredLiveSessions.prefix(8))
-        var rows: [LiveSessionRowVM] = []
-        rows.reserveCapacity(sessions.count)
-        for s in sessions {
-            rows.append(LiveSessionRowVM(from: s))
-        }
-        return rows
+        Array(filteredLiveSessions.prefix(8)).map { LiveSessionRowVM(from: $0) }
     }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: Brand.Spacing.l) {
                     header
                     dateRangePicker
                     statsGrid
                     quickActions
+                    analyticsButton
                     recentActivity
                     Spacer(minLength: 24)
                 }
-                .padding()
+                .padding(Brand.screenPadding)
             }
+            .background(Brand.pageBackground(scheme))
             .navigationTitle("RoundCount")
-            .sheet(isPresented: $showAddFirearm) {
-                AddFirearmView()
-            }
-            .sheet(isPresented: $showAnalytics) {
-                NavigationStack { AnalyticsDashboardView() }
-            }
+            .sheet(isPresented: $showAddFirearm) { AddFirearmView() }
+            .sheet(isPresented: $showAnalytics) { NavigationStack { AnalyticsDashboardView() } }
             .sheet(isPresented: $showPaywall) {
                 PaywallView(sourceFeature: paywallFeature)
                     .environmentObject(entitlements)
@@ -112,7 +91,7 @@ struct DashboardView: View {
     // MARK: - Sections
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Brand.Spacing.xs) {
             Text("Dashboard")
                 .font(.title.bold())
 
@@ -122,7 +101,7 @@ struct DashboardView: View {
                 } label: {
                     Text("Last activity: \(lastActivityDateText)")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Brand.accent.opacity(scheme == .dark ? 0.85 : 0.75))
                 }
                 .buttonStyle(.plain)
             } else {
@@ -134,9 +113,9 @@ struct DashboardView: View {
     }
 
     private var dateRangePicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Brand.Spacing.s) {
             Text("Date range")
-                .font(.headline)
+                .font(Brand.Typography.section)
 
             Picker("Date range", selection: $range) {
                 ForEach(DashboardDateRange.allCases) { r in
@@ -145,39 +124,32 @@ struct DashboardView: View {
             }
             .pickerStyle(.segmented)
         }
+        .padding(14)
+        .accentCard(radius: Brand.Radius.l) // ✅ parent card gets accent
     }
 
     private var statsGrid: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Brand.Spacing.s) {
             Text("Overview")
-                .font(.headline)
+                .font(Brand.Typography.section)
 
             LazyVGrid(columns: [
                 GridItem(.flexible(), spacing: 12),
                 GridItem(.flexible(), spacing: 12)
             ], spacing: 12) {
 
-                // Firearms -> FirearmsView
-                NavigationLink {
-                    FirearmsView()
-                } label: {
+                NavigationLink { FirearmsView() } label: {
                     StatCard(title: "Firearms", value: "\(totalFirearms)", systemImage: "scope")
                 }
                 .buttonStyle(.plain)
 
-                // Total rounds -> AmmoView
-                NavigationLink {
-                    AmmoView()
-                } label: {
+                NavigationLink { AmmoView() } label: {
                     StatCard(title: "Total rounds", value: "\(totalRounds)", systemImage: "target")
                 }
                 .buttonStyle(.plain)
 
-                // Most used -> FirearmDetailView (if exists)
                 if let mf = mostUsedFirearm {
-                    NavigationLink {
-                        FirearmDetailView(firearm: mf)
-                    } label: {
+                    NavigationLink { FirearmDetailView(firearm: mf) } label: {
                         StatCard(title: "Most used", value: mf.displayName, systemImage: "flame")
                     }
                     .buttonStyle(.plain)
@@ -185,36 +157,30 @@ struct DashboardView: View {
                     StatCard(title: "Most used", value: "—", systemImage: "flame")
                 }
 
-                // Last activity -> latest session summary
                 if let s = lastActivitySession {
-                    NavigationLink {
-                        SessionDetailView(sessionID: s.id)
-                    } label: {
+                    NavigationLink { SessionDetailView(sessionID: s.id) } label: {
                         StatCard(
                             title: "Last activity",
-                            value: lastActivityDate?.formatted(date: .abbreviated, time: .omitted) ?? "—",
+                            value: s.startedAt.formatted(date: .abbreviated, time: .omitted),
                             systemImage: "clock"
                         )
                     }
                     .buttonStyle(.plain)
                 } else {
-                    StatCard(
-                        title: "Last activity",
-                        value: lastActivityDate?.formatted(date: .abbreviated, time: .omitted) ?? "—",
-                        systemImage: "clock"
-                    )
+                    StatCard(title: "Last activity", value: "—", systemImage: "clock")
                 }
             }
         }
+        .padding(14)
+        .accentCard(radius: Brand.Radius.l) // ✅ parent card gets accent
     }
 
     private var quickActions: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Brand.Spacing.s) {
             Text("Quick actions")
-                .font(.headline)
+                .font(Brand.Typography.section)
 
             HStack(spacing: 12) {
-
                 SquareActionButton(
                     title: "Add Firearm",
                     systemImage: "scope"
@@ -233,62 +199,48 @@ struct DashboardView: View {
                     }
                 }
 
-                NavigationLink {
-                    FirearmsView()
-                } label: {
-                    VStack(spacing: 8) {
-                        Image(systemName: "list.bullet")
-                            .font(.title2)
-
-                        Text("View Firearms")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 96)
-                    .padding(.vertical, 12)
-                    .background(.thinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(.quaternary, lineWidth: 1)
-                    )
+                NavigationLink { FirearmsView() } label: {
+                    SquareActionTile(title: "View Firearms", systemImage: "list.bullet")
                 }
                 .buttonStyle(.plain)
             }
         }
+        .padding(14)
+        .accentCard(radius: Brand.Radius.l) // ✅ parent card gets accent
     }
 
-    // MARK: - Gating
+    private var analyticsButton: some View {
+        Button {
+            gateOpenAnalytics()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "chart.bar.xaxis")
+                    .font(.title3.weight(.semibold))
 
-    private func gateAddFirearm() -> GateResult {
-        if entitlements.isPro { return .allowed }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Analytics")
+                        .fontWeight(.semibold)
+                    Text(entitlements.isPro ? "Trends, breakdowns, and performance insights" : "Pro feature")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
 
-        if firearms.count >= entitlements.freeFirearmLimit {
-            return .limitReached(
-                .unlimitedFirearms,
-                message: "Free tier is limited to \(entitlements.freeFirearmLimit) firearms. Upgrade to Pro for unlimited firearms."
-            )
+                Spacer()
+
+                Image(systemName: entitlements.isPro ? "chevron.right" : "lock.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(14)
         }
-        return .allowed
+        .buttonStyle(.plain)
+        .accentCard(radius: Brand.Radius.l) // ✅ parent card gets accent
     }
-
-    private func gateOpenAnalytics() {
-        if entitlements.isPro {
-            showAnalytics = true
-            return
-        }
-
-        paywallFeature = .advancedAnalytics
-        gateMessage = "Analytics is a Pro feature. Upgrade to unlock trends, breakdowns, and performance insights."
-        showGateAlert = true
-    }
-
-    // MARK: - Recent activity
 
     private var recentActivity: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Brand.Spacing.s) {
             Text("Recent activity")
-                .font(.headline)
+                .font(Brand.Typography.section)
 
             if recentLiveRows.isEmpty {
                 ContentUnavailableView(
@@ -306,6 +258,8 @@ struct DashboardView: View {
                 }
             }
         }
+        .padding(14)
+        .accentCard(radius: Brand.Radius.l) // ✅ parent card gets accent
     }
 
     private func liveActivityRow(row: LiveSessionRowVM) -> some View {
@@ -341,6 +295,10 @@ struct DashboardView: View {
                         .foregroundStyle(.secondary)
 
                     Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 if let notes = row.notesPreview, !notes.isEmpty {
@@ -350,15 +308,39 @@ struct DashboardView: View {
                         .lineLimit(2)
                 }
             }
-            .padding()
-            .background(.thinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(12)
         }
         .buttonStyle(.plain)
+        .surfaceCard(radius: Brand.Radius.m) // ✅ inner rows stay neutral
+    }
+
+    // MARK: - Gating
+
+    private func gateAddFirearm() -> GateResult {
+        if entitlements.isPro { return .allowed }
+
+        if firearms.count >= entitlements.freeFirearmLimit {
+            return .limitReached(
+                .unlimitedFirearms,
+                message: "Free tier is limited to \(entitlements.freeFirearmLimit) firearms. Upgrade to Pro for unlimited firearms."
+            )
+        }
+        return .allowed
+    }
+
+    private func gateOpenAnalytics() {
+        if entitlements.isPro {
+            showAnalytics = true
+            return
+        }
+
+        paywallFeature = .advancedAnalytics
+        gateMessage = "Analytics is a Pro feature. Upgrade to unlock trends, breakdowns, and performance insights."
+        showGateAlert = true
     }
 }
 
-// MARK: - Lightweight row VM (kills SwiftUI inference issues)
+// MARK: - Lightweight row VM
 
 private struct LiveSessionRowVM: Identifiable {
     let id: UUID
@@ -382,7 +364,6 @@ private struct LiveSessionRowVM: Identifiable {
             notesPreview = nil
         }
 
-        // simple title
         var firstName: String? = nil
         var uniqueCount = 0
         var seen: [UUID] = []
@@ -446,7 +427,7 @@ private enum DashboardDateRange: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Small components
+// MARK: - Buttons + Cards
 
 private struct SquareActionButton: View {
     let title: String
@@ -455,24 +436,46 @@ private struct SquareActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: systemImage)
-                    .font(.title2)
-
-                Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-            }
-            .frame(maxWidth: .infinity, minHeight: 96)
-            .padding(.vertical, 12)
-            .background(.thinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(.quaternary, lineWidth: 1)
-            )
+            SquareActionTile(title: title, systemImage: systemImage)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct SquareActionTile: View {
+    let title: String
+    let systemImage: String
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(Brand.accent.opacity(scheme == .dark ? 0.18 : 0.10))
+                    .frame(width: 44, height: 44)
+
+                Circle()
+                    .strokeBorder(Brand.accent.opacity(scheme == .dark ? 0.55 : 0.35), lineWidth: 1)
+                    .frame(width: 44, height: 44)
+
+                Image(systemName: systemImage)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Brand.accent.opacity(scheme == .dark ? 0.95 : 0.85))
+            }
+
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.9)
+        }
+        .frame(maxWidth: .infinity)
+        .aspectRatio(1.2, contentMode: .fit)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 8)
+        .surfaceCard(radius: Brand.Radius.l) // ✅ inner tile stays neutral
+        .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.l, style: .continuous))
     }
 }
 
@@ -498,9 +501,8 @@ private struct StatCard: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
         }
-        .padding()
+        .padding(14)
         .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .surfaceCard(radius: Brand.Radius.m) // ✅ inner card stays neutral
     }
 }

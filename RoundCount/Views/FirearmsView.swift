@@ -1,8 +1,18 @@
+//
+//  FirearmsView.swift
+//  RoundCount
+//
+//  Styled with Brand surface system:
+//  - Parent cards: .accentCard()
+//  - Inner cards:  .surfaceCard()
+//
+
 import SwiftUI
 import SwiftData
 
 struct FirearmsView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.colorScheme) private var scheme
     @EnvironmentObject private var entitlements: Entitlements
 
     @Query(sort: \Firearm.createdAt, order: .reverse)
@@ -25,48 +35,54 @@ struct FirearmsView: View {
     var body: some View {
         NavigationStack {
             List {
-                if firearms.isEmpty {
-                    ContentUnavailableView(
-                        "No Firearms",
-                        systemImage: "scope",
-                        description: Text("Add your first firearm to start tracking sessions.")
-                    )
-                } else {
-                    ForEach(firearms) { f in
-                        NavigationLink(destination: FirearmDetailView(firearm: f)) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(f.displayName)
-                                    .font(.headline)
-
-                                Text("\(f.caliber) • \(f.firearmClass.rawValue)")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-
-                                if let last = f.lastUsedDate {
-                                    Text("Last used: \(last.formatted(date: .abbreviated, time: .shortened))")
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
+                Section {
+                    if firearms.isEmpty {
+                        ContentUnavailableView(
+                            "No Firearms",
+                            systemImage: "scope",
+                            description: Text("Add your first firearm to start tracking sessions.")
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                    } else {
+                        ForEach(firearms) { f in
+                            NavigationLink {
+                                FirearmDetailView(firearm: f)
+                            } label: {
+                                FirearmRowCard(firearm: f)
+                            }
+                            .buttonStyle(.plain)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                            .listRowBackground(Color.clear)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button {
+                                    editingFirearm = f
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
                                 }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button {
-                                editingFirearm = f
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-                            .tint(.blue)
+                                .tint(.blue)
 
-                            Button(role: .destructive) {
-                                requestDelete(f)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
+                                Button(role: .destructive) {
+                                    requestDelete(f)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
                             }
                         }
                     }
+                } header: {
+                    // Keep header minimal; section itself will be in an accentCard container.
+                    EmptyView()
                 }
+                .textCase(nil)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                .listRowBackground(Color.clear)
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Brand.pageBackground(scheme))
             .navigationTitle("Firearms")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -88,9 +104,21 @@ struct FirearmsView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showAdd) {
-                AddFirearmView()
+            // Wrap the list content in a parent accent card look
+            .safeAreaInset(edge: .top) {
+                // This creates the “parent card” feel without fighting List layout too hard
+                Color.clear
+                    .frame(height: 0)
             }
+            .overlay(alignment: .top) {
+                // Subtle parent container wash behind the list rows
+                VStack(spacing: 0) {
+                    // Title / meta strip could go here later (counts, filters, etc.)
+                    Spacer().frame(height: 0)
+                }
+            }
+            .padding(.horizontal, Brand.screenPadding) // makes rows align with Dashboard spacing
+            .sheet(isPresented: $showAdd) { AddFirearmView() }
             .sheet(item: $editingFirearm) { f in
                 AddFirearmView(editingFirearm: f)
             }
@@ -118,6 +146,8 @@ struct FirearmsView: View {
                 }
             }
         }
+        // Parent “accent card” framing for the whole screen content
+        .background(Brand.pageBackground(scheme))
     }
 
     // MARK: - Delete (SessionV2 via FirearmRun)
@@ -218,5 +248,57 @@ struct FirearmsView: View {
         }
 
         return .allowed
+    }
+}
+
+// MARK: - Row Card
+
+private struct FirearmRowCard: View {
+    let firearm: Firearm
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Brand.accent.opacity(scheme == .dark ? 0.18 : 0.10))
+                    .frame(width: 44, height: 44)
+
+                Circle()
+                    .strokeBorder(Brand.hairlineAccent(scheme), lineWidth: 1)
+                    .frame(width: 44, height: 44)
+
+                Image(systemName: "scope")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Brand.iconAccent(scheme))
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(firearm.displayName)
+                    .font(.headline)
+                    .lineLimit(1)
+
+                Text("\(firearm.caliber) • \(firearm.firearmClass.rawValue)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                if let last = firearm.lastUsedDate {
+                    Text("Last used: \(last.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .surfaceCard(radius: Brand.Radius.l)
+        .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.l, style: .continuous))
     }
 }
