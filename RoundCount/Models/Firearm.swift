@@ -17,14 +17,17 @@ final class Firearm {
     @Attribute(.unique) var id: UUID
 
     @Relationship(deleteRule: .cascade) var setups: [FirearmSetup] = []
-    
+
+    // ✅ NEW: magazines stored on firearm
+    @Relationship(deleteRule: .cascade) var magazines: [FirearmMagazine] = []
+
     // Identity
     var brand: String
     var model: String
     var caliber: String
     var firearmClassRaw: String
 
-    // ✅ Optional private field
+    // Optional private field
     var serialNumber: String?
 
     // Dates
@@ -60,7 +63,5 @@ final class Firearm {
         FirearmClass(rawValue: firearmClassRaw) ?? .other
     }
 
-    var displayName: String {
-        "\(brand) \(model)"
-    }
+    var displayName: String { "\(brand) \(model)" }
 }

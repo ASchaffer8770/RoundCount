@@ -2,10 +2,12 @@
 //  AnalyticsService.swift
 //  RoundCount
 //
-//  Created by Alex Schaffer on 1/17/26.
+//  SessionV2-only analytics
 //
 
 import Foundation
+
+// MARK: - Shared Models (single source of truth)
 
 struct RoundsBucket: Identifiable, Equatable {
     let startOfWeek: Date
@@ -34,35 +36,66 @@ struct TopRow: Identifiable, Hashable {
     let value: Int
 }
 
+// MARK: - Analytics Engine
+
 enum AnalyticsService {
 
-    // MARK: - SwiftData Sessions
+    // MARK: Filtering
 
     static func filteredSessions(
-        _ sessions: [Session],
+        _ sessions: [SessionV2],
         range: AnalyticsTimeRange,
         reference: Date = .now,
         calendar: Calendar = .current
-    ) -> [Session] {
-        guard let start = range.startDate(reference: reference, calendar: calendar) else { return sessions }
-        return sessions.filter { $0.date >= start }
+    ) -> [SessionV2] {
+        guard let start = range.startDate(reference: reference, calendar: calendar) else {
+            return sessions
+        }
+
+        var result: [SessionV2] = []
+        result.reserveCapacity(sessions.count)
+
+        for s in sessions where s.startedAt >= start {
+            result.append(s)
+        }
+
+        return result
     }
 
-    static func totals(_ sessions: [Session]) -> TotalsSummary {
-        let rounds = sessions.reduce(0) { $0 + $1.rounds }
-        let durationSeconds = sessions.reduce(0) { $0 + ($1.durationSeconds ?? 0) }
-        let malfunctions = sessions.reduce(0) { $0 + ($1.malfunctions?.total ?? 0) }
-        return TotalsSummary(rounds: rounds, durationSeconds: durationSeconds, malfunctions: malfunctions)
+    // MARK: Totals
+
+    static func totals(_ sessions: [SessionV2]) -> TotalsSummary {
+        var rounds = 0
+        var duration = 0
+        var malfunctions = 0
+
+        for s in sessions {
+            rounds += s.totalRounds
+            duration += s.durationSeconds
+            malfunctions += s.totalMalfunctions
+        }
+
+        return TotalsSummary(
+            rounds: rounds,
+            durationSeconds: duration,
+            malfunctions: malfunctions
+        )
     }
 
-    static func roundsByWeek(_ sessions: [Session], calendar: Calendar = .current) -> [RoundsBucket] {
+    // MARK: Buckets
+
+    static func roundsByWeek(
+        _ sessions: [SessionV2],
+        calendar: Calendar = .current
+    ) -> [RoundsBucket] {
+
         var map: [Date: Int] = [:]
 
         for s in sessions {
-            let startOfDay = calendar.startOfDay(for: s.date)
-            let comps = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: startOfDay)
+            let day = calendar.startOfDay(for: s.startedAt)
+            let comps = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: day)
             guard let weekStart = calendar.date(from: comps) else { continue }
-            map[weekStart, default: 0] += s.rounds
+            map[weekStart, default: 0] += s.totalRounds
         }
 
         return map
@@ -70,121 +103,51 @@ enum AnalyticsService {
             .sorted { $0.startOfWeek < $1.startOfWeek }
     }
 
-    static func topSetupsByRounds(_ sessions: [Session], limit: Int = 5) -> [TopRow] {
-        var map: [UUID: (title: String, value: Int)] = [:]
+    // MARK: Top Firearms
+
+    static func topFirearmsByRounds(
+        _ sessions: [SessionV2],
+        limit: Int = 5
+    ) -> [TopRow] {
+
+        var map: [UUID: (String, Int)] = [:]
 
         for s in sessions {
-            guard let setup = s.setup else { continue }
-            map[setup.id, default: (setup.name, 0)].value += s.rounds
+            for run in s.runs {
+                let id = run.firearm.id
+                let name = run.firearm.displayName
+                map[id, default: (name, 0)].1 += run.rounds
+            }
         }
 
         return map
-            .map { TopRow(id: $0.key, title: $0.value.title, value: $0.value.value) }
-            .sorted { $0.value > $1.value }
-            .prefix(limit)
-            .map { $0 }
-    }
-
-    static func topAmmoByRounds(_ sessions: [Session], limit: Int = 5) -> [TopRow] {
-        var map: [UUID: (title: String, value: Int)] = [:]
-
-        for s in sessions {
-            guard let ammo = s.ammo else { continue }
-            map[ammo.id, default: (ammo.displayName, 0)].value += s.rounds
-        }
-
-        return map
-            .map { TopRow(id: $0.key, title: $0.value.title, value: $0.value.value) }
+            .map { TopRow(id: $0.key, title: $0.value.0, value: $0.value.1) }
             .sorted { $0.value > $1.value }
             .prefix(limit)
             .map { $0 }
     }
 }
 
-// MARK: - Snapshot Sessions (value types)
+// MARK: - Optional Day Buckets (7D / 30D)
 
 extension AnalyticsService {
 
-    static func filteredSessions(
-        _ sessions: [SessionSnapshot],
-        range: AnalyticsTimeRange,
-        reference: Date = .now,
-        calendar: Calendar = .current
-    ) -> [SessionSnapshot] {
-        guard let start = range.startDate(reference: reference, calendar: calendar) else { return sessions }
-        return sessions.filter { $0.date >= start }
-    }
-
-    static func totals(_ sessions: [SessionSnapshot]) -> TotalsSummary {
-        let rounds = sessions.reduce(0) { $0 + $1.rounds }
-        let durationSeconds = sessions.reduce(0) { $0 + $1.durationSeconds }
-        let malfunctions = sessions.reduce(0) { $0 + $1.malfunctionsTotal }
-        return TotalsSummary(rounds: rounds, durationSeconds: durationSeconds, malfunctions: malfunctions)
-    }
-
-    static func roundsByWeek(_ sessions: [SessionSnapshot], calendar: Calendar = .current) -> [RoundsBucket] {
-        var map: [Date: Int] = [:]
-
-        for s in sessions {
-            let startOfDay = calendar.startOfDay(for: s.date)
-            let comps = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: startOfDay)
-            guard let weekStart = calendar.date(from: comps) else { continue }
-            map[weekStart, default: 0] += s.rounds
-        }
-
-        return map
-            .map { RoundsBucket(startOfWeek: $0.key, rounds: $0.value) }
-            .sorted { $0.startOfWeek < $1.startOfWeek }
-    }
-
-    static func topSetupsByRounds(_ sessions: [SessionSnapshot], limit: Int = 5) -> [TopRow] {
-        var map: [UUID: (title: String, value: Int)] = [:]
-
-        for s in sessions {
-            guard let id = s.setupId else { continue }
-            let title = s.setupName ?? "Setup"
-            map[id, default: (title, 0)].value += s.rounds
-        }
-
-        return map
-            .map { TopRow(id: $0.key, title: $0.value.title, value: $0.value.value) }
-            .sorted { $0.value > $1.value }
-            .prefix(limit)
-            .map { $0 }
-    }
-
-    static func topAmmoByRounds(_ sessions: [SessionSnapshot], limit: Int = 5) -> [TopRow] {
-        // NOTE: Only keep this if SessionSnapshot actually has ammoId/ammoName.
-        // If it doesn't, delete this entire function (and any callers).
-        var map: [UUID: (title: String, value: Int)] = [:]
-
-        for s in sessions {
-            guard let id = s.ammoId else { continue }
-            let title = s.ammoName ?? "Ammo"
-            map[id, default: (title, 0)].value += s.rounds
-        }
-
-        return map
-            .map { TopRow(id: $0.key, title: $0.value.title, value: $0.value.value) }
-            .sorted { $0.value > $1.value }
-            .prefix(limit)
-            .map { $0 }
-    }
-
-    // MARK: - Daily buckets (Snapshot)
-
     struct DayBucket: Identifiable, Equatable {
-        let day: Date          // start-of-day
+        let day: Date
         let rounds: Int
         var id: Date { day }
     }
 
-    static func roundsByDay(_ sessions: [SessionSnapshot], calendar: Calendar = .current) -> [DayBucket] {
+    static func roundsByDay(
+        _ sessions: [SessionV2],
+        calendar: Calendar = .current
+    ) -> [DayBucket] {
+
         var map: [Date: Int] = [:]
 
         for s in sessions {
-            let day = calendar.startOfDay(for: s.date)
-            map[day, default: 0] += s.rounds
+            let day = calendar.startOfDay(for: s.startedAt)
+            map[day, default: 0] += s.totalRounds
         }
 
         return map

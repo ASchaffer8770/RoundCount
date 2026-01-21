@@ -8,19 +8,25 @@
 import SwiftUI
 
 struct RootTabView: View {
-    @EnvironmentObject private var entitlements: Entitlements
+    @EnvironmentObject private var tabRouter: AppTabRouter
 
     var body: some View {
-        TabView {
+        TabView(selection: $tabRouter.selectedTab) {
             DashboardView()
-                .tabItem { Label("Dashboard", systemImage: "house.fill") }
+                .tabItem { Label("Dashboard", systemImage: "gauge") }
+                .tag(AppTab.dashboard)
 
             FirearmsView()
                 .tabItem { Label("Firearms", systemImage: "scope") }
+                .tag(AppTab.firearms)
 
-            LogSessionView()
-                .tabItem { Label("Log", systemImage: "plus.circle") }
+            LiveSessionView()
+                .tabItem { Label("Live", systemImage: "timer") }
+                .tag(AppTab.live)
+
+            SettingsView()
+                .tabItem { Label("Settings", systemImage: "gearshape") }
+                .tag(AppTab.settings)
         }
-    .environmentObject(entitlements)
     }
 }

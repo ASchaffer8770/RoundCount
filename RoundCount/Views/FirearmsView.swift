@@ -3,9 +3,10 @@ import SwiftData
 
 struct FirearmsView: View {
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var entitlements: Entitlements
 
-    @Query(sort: \Firearm.createdAt, order: .reverse) private var firearms: [Firearm]
-    @Query private var sessions: [Session]
+    @Query(sort: \Firearm.createdAt, order: .reverse)
+    private var firearms: [Firearm]
 
     @State private var showAdd = false
     @State private var editingFirearm: Firearm? = nil
@@ -14,8 +15,8 @@ struct FirearmsView: View {
     @State private var firearmPendingDelete: Firearm? = nil
     @State private var pendingDeleteSessionCount: Int = 0
     @State private var showDeleteConfirm = false
-    
-    @EnvironmentObject private var entitlements: Entitlements
+
+    // Pro gating
     @State private var showPaywall = false
     @State private var paywallFeature: Feature? = nil
     @State private var gateMessage: String? = nil
@@ -97,29 +98,21 @@ struct FirearmsView: View {
                 PaywallView(sourceFeature: paywallFeature)
                     .environmentObject(entitlements)
             }
-
             .alert("Upgrade to Pro", isPresented: $showGateAlert) {
                 Button("Not now", role: .cancel) {}
-                Button("See Pro") {
-                    showPaywall = true
-                }
+                Button("See Pro") { showPaywall = true }
             } message: {
                 Text(gateMessage ?? "This feature requires RoundCount Pro.")
             }
             .alert(
-                pendingDeleteSessionCount > 0
-                ? "Delete firearm and sessions?"
-                : "Delete firearm?",
+                pendingDeleteSessionCount > 0 ? "Delete firearm and sessions?" : "Delete firearm?",
                 isPresented: $showDeleteConfirm
             ) {
                 Button("Cancel", role: .cancel) {}
-
-                Button("Delete", role: .destructive) {
-                    performDelete()
-                }
+                Button("Delete", role: .destructive) { performDelete() }
             } message: {
                 if pendingDeleteSessionCount > 0 {
-                    Text("This firearm has \(pendingDeleteSessionCount) session(s). Deleting it will also remove those sessions.")
+                    Text("This firearm is used in \(pendingDeleteSessionCount) session(s). Deleting it will remove its runs, and any sessions that become empty will also be removed.")
                 } else {
                     Text("This action can’t be undone.")
                 }
@@ -127,16 +120,14 @@ struct FirearmsView: View {
         }
     }
 
+    // MARK: - Delete (SessionV2 via FirearmRun)
+
     private func requestDelete(_ firearm: Firearm) {
         firearmPendingDelete = firearm
 
-        // Count sessions tied to this firearm
-        let fid = firearm.id
-        pendingDeleteSessionCount = sessions.reduce(0) { count, s in
-            count + (s.firearm.id == fid ? 1 : 0)
-        }
+        let sessionIDs = sessionsInvolvingFirearm(firearmID: firearm.id)
+        pendingDeleteSessionCount = sessionIDs.count
 
-        // If no sessions, delete immediately. Otherwise confirm.
         if pendingDeleteSessionCount == 0 {
             modelContext.delete(firearm)
             firearmPendingDelete = nil
@@ -148,24 +139,77 @@ struct FirearmsView: View {
 
     private func performDelete() {
         guard let firearm = firearmPendingDelete else { return }
-
-        // Delete sessions first (so we don’t leave orphaned rows)
         let fid = firearm.id
-        for s in sessions where s.firearm.id == fid {
-            modelContext.delete(s)
+
+        // 1) Fetch runs for this firearm
+        let runs = fetchRuns(for: fid)
+
+        // 2) Track impacted sessions (so we can delete sessions that become empty)
+        var impactedSessionIDs: Set<UUID> = []
+        impactedSessionIDs.reserveCapacity(runs.count)
+        for run in runs {
+            impactedSessionIDs.insert(run.session.id)
         }
 
-        // Delete firearm
+        // 3) Delete the runs
+        for run in runs {
+            modelContext.delete(run)
+        }
+
+        // 4) Delete any now-empty sessions
+        for sid in impactedSessionIDs {
+            if let s = fetchSession(by: sid), s.runs.isEmpty {
+                modelContext.delete(s)
+            }
+        }
+
+        // 5) Delete firearm
         modelContext.delete(firearm)
 
         firearmPendingDelete = nil
         pendingDeleteSessionCount = 0
     }
-    
+
+    private func sessionsInvolvingFirearm(firearmID: UUID) -> Set<UUID> {
+        let runs = fetchRuns(for: firearmID)
+        var ids: Set<UUID> = []
+        ids.reserveCapacity(runs.count)
+        for r in runs {
+            ids.insert(r.session.id)
+        }
+        return ids
+    }
+
+    private func fetchRuns(for firearmID: UUID) -> [FirearmRun] {
+        let descriptor = FetchDescriptor<FirearmRun>(
+            predicate: #Predicate<FirearmRun> { $0.firearm.id == firearmID },
+            sortBy: [SortDescriptor(\FirearmRun.startedAt, order: .reverse)]
+        )
+        do {
+            return try modelContext.fetch(descriptor)
+        } catch {
+            print("❌ fetchRuns failed: \(error)")
+            return []
+        }
+    }
+
+    private func fetchSession(by id: UUID) -> SessionV2? {
+        let descriptor = FetchDescriptor<SessionV2>(
+            predicate: #Predicate<SessionV2> { $0.id == id }
+        )
+        do {
+            return try modelContext.fetch(descriptor).first
+        } catch {
+            print("❌ fetchSession failed: \(error)")
+            return nil
+        }
+    }
+
+    // MARK: - Gating
+
     private func gateAddFirearm() -> GateResult {
         if entitlements.isPro { return .allowed }
 
-        // Free tier limit
         if firearms.count >= entitlements.freeFirearmLimit {
             return .limitReached(
                 .unlimitedFirearms,
@@ -175,5 +219,4 @@ struct FirearmsView: View {
 
         return .allowed
     }
-
 }
