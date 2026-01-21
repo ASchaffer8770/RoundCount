@@ -29,6 +29,7 @@ struct RoundCountApp: App {
             GearItem.self,
             SessionV2.self,
             AmmoProduct.self,
+            SessionPhoto.self
         ])
     }
 }

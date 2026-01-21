@@ -13,6 +13,8 @@ struct AmmoView: View {
 
     @Query(sort: \AmmoProduct.createdAt, order: .reverse)
     private var ammo: [AmmoProduct]
+    @Query(sort: \FirearmRun.startedAt, order: .reverse)
+    private var runs: [FirearmRun]
 
     @State private var searchText = ""
     @State private var showAdd = false
@@ -107,6 +109,7 @@ struct AmmoView: View {
             .onAppear { recomputeDashboard() }
             .onChange(of: dashRange) { _, _ in recomputeDashboard() }
             .onChange(of: ammo.count) { _, _ in recomputeDashboard() }
+            .onChange(of: runs.count) { _, _ in recomputeDashboard() }
         }
     }
 

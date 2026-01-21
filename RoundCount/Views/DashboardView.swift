@@ -21,10 +21,6 @@ struct DashboardView: View {
     // ✅ Dashboard range control (default: 30 days)
     @State private var range: DashboardDateRange = .days30
 
-    // ✅ Present summary without sheet(item:) to avoid compiler blowups
-    @State private var showLiveSummary = false
-    @State private var selectedLiveSessionID: UUID? = nil
-
     @Query(sort: \Firearm.createdAt, order: .reverse) private var firearms: [Firearm]
     @Query(sort: \SessionV2.startedAt, order: .reverse) private var liveSessions: [SessionV2]
 
@@ -35,9 +31,7 @@ struct DashboardView: View {
     }
 
     private func openLastActivity() {
-        guard let s = lastActivitySession else { return }
-        selectedLiveSessionID = s.id
-        showLiveSummary = true
+        // no-op now because navigation is done via NavigationLink
     }
 
     private var totalFirearms: Int { firearms.count }
@@ -82,15 +76,6 @@ struct DashboardView: View {
         return rows
     }
 
-    // ✅ resolve selected SessionV2 only when needed
-    private var selectedLiveSession: SessionV2? {
-        guard let id = selectedLiveSessionID else { return nil }
-        // Prefer filtered first (what user sees)
-        if let s = filteredLiveSessions.first(where: { $0.id == id }) { return s }
-        // Fallback to all sessions (just in case)
-        return liveSessions.first(where: { $0.id == id })
-    }
-
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -115,26 +100,6 @@ struct DashboardView: View {
                 PaywallView(sourceFeature: paywallFeature)
                     .environmentObject(entitlements)
             }
-            // ✅ bool-based sheet = compiler-friendly
-            .sheet(isPresented: $showLiveSummary) {
-                if let s = selectedLiveSession {
-                    LiveSessionSummarySheet(session: s)
-                } else {
-                    NavigationStack {
-                        ContentUnavailableView(
-                            "Session not found",
-                            systemImage: "timer",
-                            description: Text("This session may have been deleted.")
-                        )
-                        .navigationTitle("Live Session")
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button("Done") { showLiveSummary = false }
-                            }
-                        }
-                    }
-                }
-            }
             .alert("Upgrade to Pro", isPresented: $showGateAlert) {
                 Button("Not now", role: .cancel) {}
                 Button("See Pro") { showPaywall = true }
@@ -151,16 +116,15 @@ struct DashboardView: View {
             Text("Dashboard")
                 .font(.title.bold())
 
-            if lastActivityDate != nil {
-                Button {
-                    openLastActivity()
+            if let s = lastActivitySession {
+                NavigationLink {
+                    SessionDetailView(sessionID: s.id)
                 } label: {
                     Text("Last activity: \(lastActivityDateText)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .disabled(lastActivitySession == nil)
             } else {
                 Text("Start a Live Session to begin tracking.")
                     .font(.subheadline)
@@ -222,17 +186,24 @@ struct DashboardView: View {
                 }
 
                 // Last activity -> latest session summary
-                Button {
-                    openLastActivity()
-                } label: {
+                if let s = lastActivitySession {
+                    NavigationLink {
+                        SessionDetailView(sessionID: s.id)
+                    } label: {
+                        StatCard(
+                            title: "Last activity",
+                            value: lastActivityDate?.formatted(date: .abbreviated, time: .omitted) ?? "—",
+                            systemImage: "clock"
+                        )
+                    }
+                    .buttonStyle(.plain)
+                } else {
                     StatCard(
                         title: "Last activity",
                         value: lastActivityDate?.formatted(date: .abbreviated, time: .omitted) ?? "—",
                         systemImage: "clock"
                     )
                 }
-                .buttonStyle(.plain)
-                .disabled(lastActivitySession == nil)
             }
         }
     }
@@ -242,60 +213,47 @@ struct DashboardView: View {
             Text("Quick actions")
                 .font(.headline)
 
-            VStack(spacing: 10) {
-                HStack(spacing: 10) {
-                    Button {
-                        let result = gateAddFirearm()
-                        switch result {
-                        case .allowed:
-                            showAddFirearm = true
-                        case .requiresPro(let feature):
-                            paywallFeature = feature
-                            showPaywall = true
-                        case .limitReached(let feature, let message):
-                            gateMessage = message
-                            paywallFeature = feature
-                            showGateAlert = true
-                        }
-                    } label: {
-                        HStack {
-                            Image(systemName: "scope")
-                            Text("Add firearm")
-                            Spacer()
-                        }
-                        .padding()
-                    }
-                    .buttonStyle(.bordered)
+            HStack(spacing: 12) {
 
-                    NavigationLink {
-                        FirearmsView()
-                    } label: {
-                        HStack {
-                            Image(systemName: "list.bullet")
-                            Text("View firearms")
-                            Spacer()
-                        }
-                        .padding()
+                SquareActionButton(
+                    title: "Add Firearm",
+                    systemImage: "scope"
+                ) {
+                    let result = gateAddFirearm()
+                    switch result {
+                    case .allowed:
+                        showAddFirearm = true
+                    case .requiresPro(let feature):
+                        paywallFeature = feature
+                        showPaywall = true
+                    case .limitReached(let feature, let message):
+                        gateMessage = message
+                        paywallFeature = feature
+                        showGateAlert = true
                     }
-                    .buttonStyle(.bordered)
                 }
 
-                Button {
-                    gateOpenAnalytics()
+                NavigationLink {
+                    FirearmsView()
                 } label: {
-                    HStack {
-                        Image(systemName: "chart.bar.xaxis")
-                        Text("Analytics (Pro)")
-                        Spacer()
-                        if !entitlements.isPro {
-                            Image(systemName: "lock.fill")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
+                    VStack(spacing: 8) {
+                        Image(systemName: "list.bullet")
+                            .font(.title2)
+
+                        Text("View Firearms")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
                     }
-                    .padding()
+                    .frame(maxWidth: .infinity, minHeight: 96)
+                    .padding(.vertical, 12)
+                    .background(.thinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(.quaternary, lineWidth: 1)
+                    )
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
             }
         }
     }
@@ -351,9 +309,8 @@ struct DashboardView: View {
     }
 
     private func liveActivityRow(row: LiveSessionRowVM) -> some View {
-        Button {
-            selectedLiveSessionID = row.id
-            showLiveSummary = true
+        NavigationLink {
+            SessionDetailView(sessionID: row.id)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -489,205 +446,35 @@ private enum DashboardDateRange: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Live session summary sheet (compiler-friendly: render from value VMs)
-
-private struct LiveSessionSummarySheet: View {
-    private let vm: LiveSessionSummaryVM
-    @Environment(\.dismiss) private var dismiss
-
-    init(session: SessionV2) {
-        self.vm = LiveSessionSummaryVM(session: session)
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("Summary") {
-                    row("Started", vm.startedText)
-                    row("Duration", vm.durationText)
-                    row("Total rounds", vm.totalRoundsText)
-                    row("Total malfunctions", vm.totalMalfunctionsText)
-                }
-
-                if let notes = vm.sessionNotes, !notes.isEmpty {
-                    Section("Session Notes") {
-                        Text(notes)
-                    }
-                }
-
-                Section("Runs") {
-                    if vm.runs.isEmpty {
-                        Text("No runs recorded.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(vm.runs) { run in
-                            RunSummaryRow(run: run)
-                                .padding(.vertical, 6)
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Live Session")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-    }
-
-    private func row(_ title: String, _ value: String) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Text(value)
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
-private struct RunSummaryRow: View {
-    let run: RunSummaryVM
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(run.firearmName)
-                    .font(.headline)
-                Spacer()
-                Text(run.durationText)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(spacing: 12) {
-                Label(run.roundsText, systemImage: "target")
-                Label(run.malfunctionsText, systemImage: "exclamationmark.triangle")
-            }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-
-            if let magText = run.magText {
-                Text(magText)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            if let notes = run.notes, !notes.isEmpty {
-                Text(notes)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            if !run.malfunctionDetails.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Malfunction details")
-                        .font(.footnote.weight(.semibold))
-
-                    ForEach(run.malfunctionDetails) { m in
-                        Text("• \(m.label)")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.top, 4)
-            }
-        }
-    }
-}
-
-// MARK: - Value-type VMs (no SwiftData in the view tree)
-
-private struct LiveSessionSummaryVM {
-    let startedText: String
-    let durationText: String
-    let totalRoundsText: String
-    let totalMalfunctionsText: String
-    let sessionNotes: String?
-    let runs: [RunSummaryVM]
-
-    init(session: SessionV2) {
-        startedText = session.startedAt.formatted(date: .abbreviated, time: .shortened)
-
-        let minutes = max(1, session.durationSeconds / 60)
-        durationText = "\(minutes)m"
-
-        totalRoundsText = "\(session.totalRounds)"
-        totalMalfunctionsText = "\(session.totalMalfunctions)"
-
-        if let notes = session.notes?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !notes.isEmpty {
-            sessionNotes = notes
-        } else {
-            sessionNotes = nil
-        }
-
-        // Build run VMs once (sorted)
-        let sortedRuns = session.runs.sorted { $0.startedAt < $1.startedAt }
-        runs = sortedRuns.map { RunSummaryVM(run: $0) }
-    }
-}
-
-private struct RunSummaryVM: Identifiable {
-    let id: UUID
-
-    let firearmName: String
-    let durationText: String
-    let roundsText: String
-    let malfunctionsText: String
-
-    let magText: String?
-    let notes: String?
-
-    let malfunctionDetails: [MalfunctionDetailVM]
-
-    init(run: FirearmRun) {
-        id = run.id
-
-        firearmName = run.firearm.displayName
-
-        let minutes = max(1, run.durationSeconds / 60)
-        durationText = "\(minutes)m"
-
-        roundsText = "\(run.rounds) rounds"
-        malfunctionsText = "\(run.malfunctionsCount) malf"
-
-        if let mag = run.selectedMagazine {
-            magText = "Mag: \(mag.capacity) rounds"
-        } else {
-            magText = nil
-        }
-
-        if let n = run.notes?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !n.isEmpty {
-            notes = n
-        } else {
-            notes = nil
-        }
-
-        // Snapshot malfunction details
-        if run.malfunctions.isEmpty {
-            malfunctionDetails = []
-        } else {
-            malfunctionDetails = run.malfunctions.map { MalfunctionDetailVM(m: $0) }
-        }
-    }
-}
-
-private struct MalfunctionDetailVM: Identifiable {
-    let id: UUID
-    let label: String
-
-    init(m: RunMalfunction) {
-        id = m.id
-        // Use shortLabel for dense UI; switch to m.kindRaw if you want full text.
-        label = "\(m.kind.shortLabel) (\(m.count))"
-        // OR: label = "\(m.kindRaw) (\(m.count))"
-    }
-}
-
-
 // MARK: - Small components
+
+private struct SquareActionButton: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.title2)
+
+                Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+            }
+            .frame(maxWidth: .infinity, minHeight: 96)
+            .padding(.vertical, 12)
+            .background(.thinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(.quaternary, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
 
 private struct StatCard: View {
     let title: String

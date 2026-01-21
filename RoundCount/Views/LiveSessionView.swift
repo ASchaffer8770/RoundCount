@@ -9,6 +9,9 @@ import SwiftUI
 import SwiftData
 import Combine
 import UIKit
+import PhotosUI
+import Foundation
+
 
 // MARK: - ViewModel (SwiftData-backed)
 
@@ -16,11 +19,13 @@ import UIKit
 final class LiveSessionVM: ObservableObject {
 
     enum State: Equatable { case idle, running, paused, ended }
-    @EnvironmentObject private var tabRouter: AppTabRouter
 
     @Published var state: State = .idle
     @Published var startedAt: Date? = nil
     @Published var endedAt: Date? = nil
+    
+    @Published private(set) var elapsedCarry: TimeInterval = 0
+    private var resumeAnchor: Date? = nil
 
     @Published var now: Date = Date()
     private var timer: Timer?
@@ -28,16 +33,21 @@ final class LiveSessionVM: ObservableObject {
     @Published var session: SessionV2? = nil
     @Published var runs: [FirearmRun] = []
     @Published var activeRunID: UUID? = nil
-
     @Published var sessionNotes: String = ""
 
     var totalRounds: Int { runs.reduce(0) { $0 + $1.rounds } }
     var totalMalfunctions: Int { runs.reduce(0) { $0 + $1.malfunctionsCount } }
 
     var sessionDuration: TimeInterval {
-        guard let startedAt else { return 0 }
-        let end = endedAt ?? now
-        return max(0, end.timeIntervalSince(startedAt))
+        switch state {
+        case .running:
+            let anchor = resumeAnchor ?? startedAt ?? now
+            return max(0, elapsedCarry + now.timeIntervalSince(anchor))
+        case .paused, .ended:
+            return max(0, elapsedCarry)
+        case .idle:
+            return 0
+        }
     }
 
     var activeRunIndex: Int? {
@@ -61,6 +71,8 @@ final class LiveSessionVM: ObservableObject {
 
         session = s
         startedAt = s.startedAt
+        elapsedCarry = 0
+        resumeAnchor = startedAt
         endedAt = s.endedAt
         sessionNotes = s.notes ?? ""
 
@@ -76,11 +88,16 @@ final class LiveSessionVM: ObservableObject {
         state = .paused
         stopTimer()
         endActiveRunIfNeeded(modelContext: modelContext)
+        if let anchor = resumeAnchor {
+            elapsedCarry += now.timeIntervalSince(anchor)
+        }
+        resumeAnchor = nil
     }
 
     func resumeSession() {
         guard state == .paused else { return }
         state = .running
+        resumeAnchor = Date()
         startTimer()
     }
 
@@ -89,6 +106,11 @@ final class LiveSessionVM: ObservableObject {
 
         if state == .running { endActiveRunIfNeeded(modelContext: modelContext) }
         guard let s = session else { return }
+
+        if state == .running, let anchor = resumeAnchor {
+            elapsedCarry += now.timeIntervalSince(anchor)
+        }
+        resumeAnchor = nil
 
         s.endedAt = Date()
         s.notes = sessionNotes
@@ -101,6 +123,8 @@ final class LiveSessionVM: ObservableObject {
 
     func resetSession() {
         stopTimer()
+        elapsedCarry = 0
+        resumeAnchor = nil
         state = .idle
         startedAt = nil
         endedAt = nil
@@ -110,7 +134,7 @@ final class LiveSessionVM: ObservableObject {
         sessionNotes = ""
         now = Date()
     }
-
+    
     // MARK: Runs
 
     func startNewRun(modelContext: ModelContext, firearm: Firearm) {
@@ -139,19 +163,35 @@ final class LiveSessionVM: ObservableObject {
         objectWillChange.send()
     }
 
-    func setActiveRun(_ runID: UUID, modelContext: ModelContext) {
+    func continueRun(from priorRunID: UUID, modelContext: ModelContext) {
         guard state == .running else { return }
-        if activeRunID == runID { return }
+        guard let s = session else { return }
+        guard let prior = runs.first(where: { $0.id == priorRunID }) else { return }
 
         endActiveRunIfNeeded(modelContext: modelContext)
 
-        if let run = runs.first(where: { $0.id == runID }) {
-            run.endedAt = nil
-            run.startedAt = Date()
-            activeRunID = runID
-            try? modelContext.save()
-            objectWillChange.send()
-        }
+        let newRun = FirearmRun(
+            firearm: prior.firearm,
+            startedAt: Date(),
+            endedAt: nil,
+            rounds: 0,
+            malfunctionsCount: 0,
+            notes: nil,
+            session: s,
+            selectedMagazine: prior.selectedMagazine
+        )
+
+        // carry forward ammo selection (nice UX)
+        newRun.ammo = prior.ammo
+        newRun.defaultAmmo = prior.defaultAmmo
+
+        modelContext.insert(newRun)
+        s.runs.append(newRun)
+        try? modelContext.save()
+
+        runs = s.runs.sorted(by: { $0.startedAt < $1.startedAt })
+        activeRunID = newRun.id
+        objectWillChange.send()
     }
 
     func endActiveRunIfNeeded(modelContext: ModelContext) {
@@ -240,9 +280,8 @@ struct LiveSessionView: View {
     @EnvironmentObject private var entitlements: Entitlements
     @EnvironmentObject private var tabRouter: AppTabRouter
     @Query(sort: \Firearm.createdAt, order: .reverse) private var firearms: [Firearm]
-    @Query(sort: \AmmoProduct.createdAt, order: .reverse)
-    private var ammoLibrary: [AmmoProduct]
-    
+    @Query(sort: \AmmoProduct.createdAt, order: .reverse) private var ammoLibrary: [AmmoProduct]
+
     @State private var showAmmoPicker = false
     @State private var ammoPickerRunID: UUID? = nil
 
@@ -250,16 +289,14 @@ struct LiveSessionView: View {
 
     @AppStorage("liveSession.rangeMode") private var rangeMode: Bool = true
 
-    // Sticky UI selection of malfunction kind per run (fast tapping)
     @State private var selectedMalfunctionKindByRun: [UUID: MalfunctionKind] = [:]
 
-    // Keyboard Done support
     @FocusState private var focusedField: FocusField?
     enum FocusField: Hashable {
         case runNotes(UUID)
         case sessionNotes
     }
-    
+
     private func consumePendingLiveStartIfNeeded() {
         guard let firearmID = tabRouter.pendingLiveFirearmID else { return }
         guard let firearm = firearms.first(where: { $0.id == firearmID }) else {
@@ -267,12 +304,10 @@ struct LiveSessionView: View {
             return
         }
 
-        // If no session yet, start one
         if vm.state == .idle || vm.session == nil {
             vm.startSession(modelContext: modelContext)
         }
 
-        // Clean segment timing: close current run before starting the next
         if vm.state == .running {
             vm.endActiveRunIfNeeded(modelContext: modelContext)
             vm.startNewRun(modelContext: modelContext, firearm: firearm)
@@ -281,13 +316,154 @@ struct LiveSessionView: View {
         tabRouter.clearPendingLiveRequest()
     }
 
-
-    // Sheets / confirmations
     @State private var showFirearmPicker = false
     @State private var pendingAddRun = false
 
     @State private var confirmEndSession = false
     @State private var confirmDeleteRunID: UUID? = nil
+    
+    // MARK: Photos (V1)
+    @State private var showCamera = false
+    @State private var pickedItems: [PhotosPickerItem] = []
+    @State private var selectedPhotoForPreview: SessionPhoto? = nil
+
+    @Query(sort: \SessionPhoto.createdAt, order: .reverse)
+    private var allSessionPhotos: [SessionPhoto]
+
+    private var currentSessionPhotos: [SessionPhoto] {
+        guard let sid = vm.session?.id else { return [] }
+        return allSessionPhotos.filter { $0.session?.id == sid }
+    }
+
+    private func addPhoto(_ image: UIImage) {
+        guard let s = vm.session else { return }
+        guard let _ = vm.activeRun else {
+            // User feedback if they try to add without a run
+            print("Attempted to add photo without an active run")
+            haptic(.light)
+            return
+        }
+
+        do {
+            let path = try ImageStore.saveJPEG(image, quality: 0.82)
+            let photo = SessionPhoto(filePath: path, session: s, run: vm.activeRun)
+            modelContext.insert(photo)
+            try? modelContext.save()
+            haptic(.medium)
+        } catch {
+            haptic(.light)
+        }
+    }
+
+    private func deletePhoto(_ p: SessionPhoto) {
+        ImageStore.delete(path: p.filePath)
+        modelContext.delete(p)
+        try? modelContext.save()
+        haptic(.light)
+    }
+
+    private func handlePickedPhotos(_ items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
+        guard vm.activeRun != nil else {
+            print("PhotosPicker: no active run; ignoring selection")
+            haptic(.light)
+            return
+        }
+        focusedField = nil
+
+        Task {
+            for item in items {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    await MainActor.run { addPhoto(image) }
+                }
+            }
+            await MainActor.run { pickedItems = [] }
+        }
+    }
+
+    private var photosSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
+                Text("Photos")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button {
+                    focusedField = nil
+                    showCamera = true
+                    haptic(.light)
+                } label: {
+                    Label("Camera", systemImage: "camera.fill")
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(ChipButtonStyle())
+
+                PhotosPicker(selection: $pickedItems, maxSelectionCount: 10, matching: .images) {
+                    Label("Library", systemImage: "photo.on.rectangle")
+                        .labelStyle(.titleAndIcon)
+                }
+                // 👇 PhotosPicker ignores some button styles unless you apply it like this
+                .buttonStyle(ChipButtonStyle())
+                .onChange(of: pickedItems) { _, newItems in
+                    handlePickedPhotos(newItems)
+                }
+            }
+
+            if vm.activeRun == nil {
+                Text("Start a run to add and save photos to this session.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            if currentSessionPhotos.isEmpty {
+                Text("Add target photos, malfunctions, or notes from the line.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(currentSessionPhotos) { p in
+                            PhotoThumb(photo: p)
+                                .onTapGesture { selectedPhotoForPreview = p }
+                                .contextMenu {
+                                    Button(role: .destructive) { deletePhoto(p) } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .sheet(isPresented: $showCamera) {
+            CameraCaptureView { image in
+                showCamera = false
+                if let image { addPhoto(image) }
+            }
+            .ignoresSafeArea()
+        }
+        .sheet(item: $selectedPhotoForPreview) { (p: SessionPhoto) in
+            NavigationStack {
+                PhotoPreview(photo: p)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button(role: .destructive) {
+                                deletePhoto(p)
+                                selectedPhotoForPreview = nil
+                            } label: { Image(systemName: "trash") }
+                        }
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") { selectedPhotoForPreview = nil }
+                        }
+                    }
+            }
+        }
+    }
+
 
     var body: some View {
         NavigationStack {
@@ -318,12 +494,15 @@ struct LiveSessionView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) { bottomBar }
-            .confirmationDialog("End session?", isPresented: $confirmEndSession, titleVisibility: .visible) {
-                Button("End Session", role: .destructive) { endSessionTapped() }
-                Button("Cancel", role: .cancel) {}
+
+            // ✅ Fix "weird dialog": use alert for end-session confirmation
+            .alert("Stop session?", isPresented: $confirmEndSession) {
+                Button("Stop Session", role: .destructive) { endSessionTapped() }
+                Button("Cancel", role: .cancel) { }
             } message: {
-                Text("This will stop the timer and finalize this session.")
+                Text("This will finalize the session and save all runs.")
             }
+
             .confirmationDialog("Delete run?", isPresented: Binding(
                 get: { confirmDeleteRunID != nil },
                 set: { if !$0 { confirmDeleteRunID = nil } }
@@ -339,6 +518,7 @@ struct LiveSessionView: View {
             } message: {
                 Text("This can’t be undone.")
             }
+
             .sheet(isPresented: $showFirearmPicker) {
                 FirearmPickerSheet(
                     firearms: firearms,
@@ -366,7 +546,6 @@ struct LiveSessionView: View {
                         guard let rid = ammoPickerRunID else { return }
                         vm.updateRun(rid, modelContext: modelContext) { r in
                             r.ammo = picked
-                            // Optional: remember a "default" for this run (future use)
                             r.defaultAmmo = picked
                         }
                         ammoPickerRunID = nil
@@ -389,12 +568,8 @@ struct LiveSessionView: View {
                 )
             }
 
-            .onAppear {
-                consumePendingLiveStartIfNeeded()
-            }
-            .onChange(of: tabRouter.pendingLiveFirearmID) { _, _ in
-                consumePendingLiveStartIfNeeded()
-            }
+            .onAppear { consumePendingLiveStartIfNeeded() }
+            .onChange(of: tabRouter.pendingLiveFirearmID) { _, _ in consumePendingLiveStartIfNeeded() }
             .onAppear { syncIdleTimer() }
             .onChange(of: vm.state) { _, _ in syncIdleTimer() }
         }
@@ -433,47 +608,56 @@ struct LiveSessionView: View {
     private var bottomBar: some View {
         VStack(spacing: 0) {
             Divider()
-            HStack(spacing: 10) {
+
+            HStack(spacing: 12) {
                 switch vm.state {
+
                 case .idle:
-                    Button { startSessionTapped() } label: {
-                        Label("Start", systemImage: "play.fill").frame(maxWidth: .infinity)
+                    Button("Start Session") {
+                        startSessionTapped()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ActionButtonStyle(prominent: true))
 
                 case .running:
-                    Button { addRunTapped() } label: {
-                        Label("Add Run", systemImage: "plus.circle.fill").frame(maxWidth: .infinity)
+                    Button {
+                        addRunTapped()
+                    } label: {
+                        VStack(spacing: 2) {
+                            Text("Add Run")
+                            Text("Track Firearm")
+                                .font(.caption2)
+                                .opacity(0.8)
+                        }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(firearms.isEmpty)
+                    .buttonStyle(ActionButtonStyle(prominent: true))
 
-                    Button { pauseTapped() } label: {
-                        Label("Pause", systemImage: "pause.fill").frame(maxWidth: .infinity)
+                    Button("Pause") {
+                        pauseTapped()
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(ActionButtonStyle())
 
-                    Button(role: .destructive) { confirmEndSession = true } label: {
-                        Label("End", systemImage: "stop.fill").frame(maxWidth: .infinity)
+                    Button("End") {
+                        confirmEndSession = true
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(ActionButtonStyle(role: .destructive))
 
                 case .paused:
-                    Button { resumeTapped() } label: {
-                        Label("Resume", systemImage: "play.fill").frame(maxWidth: .infinity)
+                    Button("Resume") {
+                        resumeTapped()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ActionButtonStyle(prominent: true))
 
-                    Button(role: .destructive) { confirmEndSession = true } label: {
-                        Label("End", systemImage: "stop.fill").frame(maxWidth: .infinity)
+                    Button("End") {
+                        confirmEndSession = true
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(ActionButtonStyle(role: .destructive))
 
                 case .ended:
-                    Button { vm.resetSession(); haptic(.light) } label: {
-                        Label("New Session", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
+                    Button("New Session") {
+                        vm.resetSession()
+                        haptic(.light)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(ActionButtonStyle(prominent: true))
                 }
             }
             .padding(.horizontal, 16)
@@ -518,8 +702,9 @@ struct LiveSessionView: View {
         }
     }
 
+    // ✅ Neon Active card
     private var activeCard: some View {
-        Card {
+        Card(neon: true) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("Active").font(.headline)
@@ -532,6 +717,8 @@ struct LiveSessionView: View {
                             .clipShape(Capsule())
                     }
                 }
+                
+                photosSection
 
                 if let run = vm.activeRun {
                     firearmPickerRow(runID: run.id, selectedFirearmID: run.firearm.id)
@@ -583,11 +770,17 @@ struct LiveSessionView: View {
                     }
                 } else {
                     ContentUnavailableView(
-                        vm.state == .idle ? "Ready to start" : (vm.state == .paused ? "Paused" : (vm.state == .ended ? "Session ended" : "No active run")),
-                        systemImage: vm.state == .idle ? "play.circle.fill" : (vm.state == .paused ? "pause.circle" : (vm.state == .ended ? "checkmark.circle" : "scope")),
+                        vm.state == .idle ? "Ready to start" :
+                            (vm.state == .paused ? "Paused" :
+                                (vm.state == .ended ? "Session ended" : "No active run")),
+                        systemImage: vm.state == .idle ? "scope" :
+                            (vm.state == .paused ? "pause.circle" :
+                                (vm.state == .ended ? "checkmark.circle" : "scope")),
                         description: Text(vm.state == .running
-                                         ? (firearms.isEmpty ? "Add a firearm first." : "Tap “Add Run” to start tracking.")
-                                         : (vm.state == .idle ? "Start a session when you’re on the line." : (vm.state == .paused ? "Resume when you’re ready." : "Start a new session when you’re ready.")))
+                                          ? (firearms.isEmpty ? "Add a firearm first." : "Tap “Add Run” to start tracking.")
+                                          : (vm.state == .idle ? "Start a session when you’re on the line."
+                                             : (vm.state == .paused ? "Resume when you’re ready."
+                                                : "Start a new session when you’re ready.")))
                     )
                 }
             }
@@ -665,9 +858,9 @@ struct LiveSessionView: View {
                         .background(.green.opacity(0.2))
                         .clipShape(Capsule())
                 } else if vm.state == .running {
-                    Button("Make Active") {
+                    Button("Continue") {
                         focusedField = nil
-                        vm.setActiveRun(run.id, modelContext: modelContext)
+                        vm.continueRun(from: run.id, modelContext: modelContext)
                         haptic(.light)
                     }
                     .font(.caption)
@@ -692,8 +885,6 @@ struct LiveSessionView: View {
             }
         }
     }
-
-    // MARK: - Rounds (mag-based, persisted)
 
     private func roundsQuickControl(run: FirearmRun) -> some View {
         let mags = run.firearm.magazines.sorted(by: { $0.capacity < $1.capacity })
@@ -741,9 +932,30 @@ struct LiveSessionView: View {
                         }
                     }
                 } label: {
-                    Label(selected?.displayName ?? "\(cap) / mag", systemImage: "magazine.fill")
-                        .font(.subheadline)
+                    HStack(spacing: 8) {
+                        Image(systemName: "magazine.fill")
+                            .font(.subheadline)
+
+                        Text(selected?.displayName ?? "\(cap) / mag")
+                            .font(.subheadline)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+
+                        Image(systemName: "chevron.down")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .opacity(0.85)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.secondary.opacity(0.08))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(.quaternary, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
+                .menuStyle(.button)
 
                 Spacer()
 
@@ -754,12 +966,9 @@ struct LiveSessionView: View {
         }
     }
 
-    // MARK: - Malfunctions (persisted breakdown)
-
     private func malfunctionsControl(run: FirearmRun) -> some View {
         let kind = selectedKind(for: run.id)
 
-        // build breakdown from SwiftData
         let breakdownPairs = run.malfunctions
             .filter { $0.count > 0 }
             .sorted { $0.kindRaw < $1.kindRaw }
@@ -780,9 +989,29 @@ struct LiveSessionView: View {
                         }
                     }
                 } label: {
-                    Label(kind.shortLabel, systemImage: "exclamationmark.triangle")
-                        .font(.subheadline)
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.subheadline)
+
+                        Text(kind.shortLabel)
+                            .font(.subheadline)
+                            .lineLimit(1)
+
+                        Image(systemName: "chevron.down")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .opacity(0.85)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.secondary.opacity(0.08))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(.quaternary, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
+                .menuStyle(.button)
 
                 Spacer()
 
@@ -810,39 +1039,60 @@ struct LiveSessionView: View {
         }
     }
 
-    // MARK: - Firearm Picker Row
-
     private func firearmPickerRow(runID: UUID, selectedFirearmID: UUID) -> some View {
-        HStack {
+        HStack(spacing: 12) {
             Text("Firearm")
-            Spacer()
 
-            Picker("Firearm", selection: Binding(
-                get: { selectedFirearmID },
-                set: { newID in
-                    guard let newFirearm = firearms.first(where: { $0.id == newID }) else { return }
-                    focusedField = nil
-                    vm.updateRun(runID, modelContext: modelContext) { r in
-                        r.firearm = newFirearm
-                        // default mag when switching firearm
-                        r.selectedMagazine = newFirearm.magazines.sorted(by: { $0.capacity < $1.capacity }).first
-                    }
-                    haptic(.light)
-                }
-            )) {
+            Spacer(minLength: 8)
+
+            Menu {
                 ForEach(firearms) { f in
-                    Text(f.displayName).tag(f.id)
+                    Button {
+                        focusedField = nil
+                        vm.updateRun(runID, modelContext: modelContext) { r in
+                            r.firearm = f
+                            r.selectedMagazine = f.magazines
+                                .sorted(by: { $0.capacity < $1.capacity })
+                                .first
+                        }
+                        haptic(.light)
+                    } label: {
+                        Text(f.displayName)
+                    }
                 }
+            } label: {
+                HStack(spacing: 8) {
+                    Text(
+                        firearms.first(where: { $0.id == selectedFirearmID })?.displayName
+                        ?? "Select firearm"
+                    )
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                    Image(systemName: "chevron.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .opacity(0.8)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.secondary.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(.quaternary, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-            .pickerStyle(.menu)
+            .menuStyle(.button)
         }
     }
-    
-    //MARK: - Ammo Picker
+
+
     private func ammoPickerRow(run: FirearmRun) -> some View {
-        HStack {
+        HStack(spacing: 12) {
             Text("Ammo")
-            Spacer()
+
+            Spacer(minLength: 8)
 
             Button {
                 focusedField = nil
@@ -850,18 +1100,38 @@ struct LiveSessionView: View {
                 showAmmoPicker = true
                 haptic(.light)
             } label: {
-                HStack(spacing: 6) {
-                    Text(run.ammoDisplayLabel)
+                HStack(spacing: 8) {
+                    Text(run.ammo == nil ? "None selected" : run.ammoDisplayLabel)
                         .foregroundStyle(run.ammo == nil ? .secondary : .primary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
 
-                    Image(systemName: "chevron.up.chevron.down")
+                    if run.ammo == nil {
+                        Text("Optional")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.secondary.opacity(0.10))
+                            .clipShape(Capsule())
+                    }
+
+                    Image(systemName: "chevron.down")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .opacity(0.6)
+                        .opacity(0.8)
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.secondary.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(run.ammo == nil ? Color.secondary.opacity(0.35) : Color.secondary.opacity(0.20), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.plain)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
     }
 
@@ -905,8 +1175,6 @@ struct LiveSessionView: View {
         haptic(.medium)
     }
 
-    // MARK: - Rounds + Malfunctions bumpers
-
     private func bumpRounds(runID: UUID, delta: Int) {
         vm.updateRun(runID, modelContext: modelContext) { r in
             r.rounds = max(0, r.rounds + delta)
@@ -923,8 +1191,6 @@ struct LiveSessionView: View {
         haptic(.light)
     }
 
-    // MARK: - Quick pill helper
-
     private func quickPill(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
@@ -936,8 +1202,6 @@ struct LiveSessionView: View {
         .buttonStyle(.bordered)
     }
 
-    // MARK: - Friction reducers
-
     private func syncIdleTimer() {
         UIApplication.shared.isIdleTimerDisabled = (vm.state == .running || vm.state == .paused)
     }
@@ -945,8 +1209,6 @@ struct LiveSessionView: View {
     private func haptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
         UIImpactFeedbackGenerator(style: style).impactOccurred()
     }
-
-    // MARK: - Status
 
     private var statusText: String {
         switch vm.state {
@@ -978,20 +1240,53 @@ struct LiveSessionView: View {
 
 // MARK: - Small UI Primitives
 
+private struct ChipButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.secondary.opacity(configuration.isPressed ? 0.18 : 0.10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(.quaternary, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+private extension View {
+    @ViewBuilder func `if`<T: View>(_ condition: Bool, transform: (Self) -> T) -> some View {
+        if condition { transform(self) } else { self }
+    }
+}
+
 private struct Card<Content: View>: View {
     private let content: Content
-    init(@ViewBuilder _ content: () -> Content) { self.content = content() }
+    private let neon: Bool
+
+    init(neon: Bool = false, @ViewBuilder _ content: () -> Content) {
+        self.content = content()
+        self.neon = neon
+    }
 
     var body: some View {
         VStack { content }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(.quaternary, lineWidth: 1)
-            )
+            .background(.clear)
+            .if(neon) { $0.neonCard(cornerRadius: 16, intensity: 1.0) }
+            .if(!neon) { view in
+                view
+                    .background(.background)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(.quaternary, lineWidth: 1)
+                    )
+            }
     }
 }
 
@@ -1008,6 +1303,48 @@ private struct StatPill: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.secondary.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private struct ActionButtonStyle: ButtonStyle {
+    var role: ButtonRole? = nil
+    var prominent: Bool = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.headline)
+            .frame(height: 48)
+            .frame(maxWidth: .infinity)
+            .background(background(configuration))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(borderColor, lineWidth: 1)
+            )
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+
+    private func background(_ configuration: Configuration) -> some View {
+        Group {
+            if role == .destructive {
+                Color.red.opacity(configuration.isPressed ? 0.85 : 1.0)
+            } else if prominent {
+                Brand.accent.opacity(configuration.isPressed ? 0.85 : 1.0)
+            } else {
+                Color.secondary.opacity(configuration.isPressed ? 0.15 : 0.20)
+            }
+        }
+    }
+
+    private var borderColor: Color {
+        if role == .destructive {
+            return .red.opacity(0.9)
+        }
+        if prominent {
+            return Brand.accent.opacity(0.9)
+        }
+        return .secondary.opacity(0.25)
     }
 }
 
@@ -1168,6 +1505,99 @@ private struct AmmoPickerSheet: View {
     private func shortTitle(_ a: AmmoProduct) -> String {
         let line = (a.productLine?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
         return line.isEmpty ? a.brand : "\(a.brand) \(line)"
+    }
+
+}
+
+// MARK: - Photos UI (Live Session)
+
+private struct PhotoThumb: View {
+    let photo: SessionPhoto
+
+    var body: some View {
+        Group {
+            if let img = ImageStore.loadImage(path: photo.filePath) {
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    Rectangle().fill(.secondary.opacity(0.15))
+                    Image(systemName: "photo")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(width: 76, height: 76)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(.quaternary, lineWidth: 1)
+        )
+    }
+}
+
+private struct PhotoPreview: View {
+    let photo: SessionPhoto
+
+    var body: some View {
+        VStack {
+            if let img = ImageStore.loadImage(path: photo.filePath) {
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.black.opacity(0.95))
+            } else {
+                ContentUnavailableView(
+                    "Missing photo",
+                    systemImage: "photo",
+                    description: Text("This photo could not be loaded.")
+                )
+            }
+        }
+        .navigationTitle("Photo")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct CameraCaptureView: UIViewControllerRepresentable {
+    let onComplete: (UIImage?) -> Void
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onComplete: onComplete)
+    }
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        let onComplete: (UIImage?) -> Void
+
+        init(onComplete: @escaping (UIImage?) -> Void) {
+            self.onComplete = onComplete
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            picker.dismiss(animated: true)
+            onComplete(nil)
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]
+        ) {
+            let image = info[.originalImage] as? UIImage
+            picker.dismiss(animated: true)
+            onComplete(image)
+        }
     }
 }
 

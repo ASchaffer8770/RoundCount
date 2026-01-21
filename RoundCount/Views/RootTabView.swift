@@ -1,36 +1,36 @@
-//
-//  RootTabView.swift
-//  RoundCount
-//
-//  Created by Alex Schaffer on 1/15/26.
-//
-
 import SwiftUI
 
 struct RootTabView: View {
     @EnvironmentObject private var tabRouter: AppTabRouter
 
     var body: some View {
-        TabView(selection: $tabRouter.selectedTab) {
-            DashboardView()
-                .tabItem { Label("Dashboard", systemImage: "gauge") }
-                .tag(AppTab.dashboard)
+        NavigationStack {
+            TabView(selection: $tabRouter.selectedTab) {
+                DashboardView()
+                    .tabItem { Label("Dashboard", systemImage: "gauge") }
+                    .tag(AppTab.dashboard)
 
-            FirearmsView()
-                .tabItem { Label("Firearms", systemImage: "scope") }
-                .tag(AppTab.firearms)
-            
-            AmmoView()
-                .tabItem { Label("Ammo", systemImage: "tray.full") }
-                .tag(AppTab.ammo)
+                FirearmsView()
+                    .tabItem { Label("Firearms", systemImage: "scope") }
+                    .tag(AppTab.firearms)
 
-            LiveSessionView()
-                .tabItem { Label("Live", systemImage: "timer") }
-                .tag(AppTab.live)
+                AmmoView()
+                    .tabItem { Label("Ammo", systemImage: "tray.full") }
+                    .tag(AppTab.ammo)
 
-            SettingsView()
-                .tabItem { Label("Settings", systemImage: "gearshape") }
-                .tag(AppTab.settings)
+                LiveSessionView()
+                    .tabItem { Label("Live", systemImage: "timer") }
+                    .tag(AppTab.live)
+
+                SettingsView()
+                    .tabItem { Label("Settings", systemImage: "gearshape") }
+                    .tag(AppTab.settings)
+            }
+
+            // ✅ Single, global destination for SessionV2 details
+            .navigationDestination(for: UUID.self) { sessionID in
+                SessionDetailView(sessionID: sessionID)
+            }
         }
     }
 }

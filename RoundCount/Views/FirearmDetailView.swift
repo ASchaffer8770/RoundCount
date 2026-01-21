@@ -99,6 +99,11 @@ struct FirearmDetailView: View {
         .navigationDestination(isPresented: $showMagazines) {
             FirearmMagazinesEditorView(firearm: firearm)
         }
+
+        // ✅ IMPORTANT:
+        // Do NOT declare navigationDestination(for:) here for sessions.
+        // The session destination should be declared once, closest to the root NavigationStack.
+        // This view only emits NavigationLink(value: UUID).
         .sheet(isPresented: $showEdit) {
             AddFirearmView(editingFirearm: firearm)
         }
@@ -315,10 +320,7 @@ struct FirearmDetailView: View {
         let malfs = s.totalMalfunctions
         let minutes = max(1, s.durationSeconds / 60)
 
-        return Button {
-            // ✅ Tap row jumps user into Live tab (lowest friction right now)
-            tabRouter.selectedTab = .live
-        } label: {
+        return NavigationLink(value: s.id) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("\(rounds) rounds")
