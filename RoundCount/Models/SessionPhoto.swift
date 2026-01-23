@@ -40,13 +40,22 @@ final class SessionPhoto {
     // Store image bytes (JPEG). externalStorage avoids bloating the main store file.
     @Attribute(.externalStorage) var imageData: Data
 
+    // ✅ Small thumb for fast list rendering (optional)
+    @Attribute(.externalStorage) var thumbnailData: Data?
+
     // ✅ Ownership: photo belongs to exactly one run
     @Relationship(inverse: \FirearmRun.photos)
     var run: FirearmRun
 
-    init(run: FirearmRun, imageData: Data, tag: SessionPhotoTag) {
+    init(
+        run: FirearmRun,
+        imageData: Data,
+        thumbnailData: Data? = nil,
+        tag: SessionPhotoTag
+    ) {
         self.run = run
         self.imageData = imageData
+        self.thumbnailData = thumbnailData
         self.tagRaw = tag.rawValue
         self.createdAt = Date()
     }

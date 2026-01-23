@@ -22,14 +22,12 @@ struct FirearmDetailRouteView: View {
                 ContentUnavailableView("Firearm not found", systemImage: "scope")
             }
         }
-        .task(id: firearmID) { load() }
+        .task(id: firearmID) {
+            load()
+        }
     }
 
     private func load() {
-        do {
-            firearm = try modelContext.model(for: firearmID) as? Firearm
-        } catch {
-            firearm = nil
-        }
+        firearm = modelContext.model(for: firearmID) as? Firearm
     }
 }

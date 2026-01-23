@@ -58,6 +58,14 @@ final class LiveSessionVM: ObservableObject {
         return runs[idx]
     }
 
+    // MARK: Save strategy
+    // Keep taps/snappy UI: never block a gesture on a synchronous save.
+    private func scheduleSave(_ modelContext: ModelContext) {
+        Task { @MainActor in
+            try? modelContext.save()
+        }
+    }
+
     // MARK: Lifecycle
 
     func startSession(modelContext: ModelContext) {
@@ -65,7 +73,6 @@ final class LiveSessionVM: ObservableObject {
 
         let s = SessionV2(startedAt: Date(), endedAt: nil, notes: nil)
         modelContext.insert(s)
-        try? modelContext.save()
 
         session = s
         startedAt = s.startedAt
@@ -74,12 +81,13 @@ final class LiveSessionVM: ObservableObject {
         endedAt = s.endedAt
         sessionNotes = s.notes ?? ""
 
-        runs = s.runs.sorted(by: { $0.startedAt < $1.startedAt })
+        runs = []
         activeRunID = nil
 
         state = .running
         startTimer()
     }
+
 
     func pauseSession(modelContext: ModelContext) {
         guard state == .running else { return }
@@ -101,7 +109,6 @@ final class LiveSessionVM: ObservableObject {
 
     func endSession(modelContext: ModelContext) {
         guard state == .running || state == .paused else { return }
-
         if state == .running { endActiveRunIfNeeded(modelContext: modelContext) }
         guard let s = session else { return }
 
@@ -112,8 +119,8 @@ final class LiveSessionVM: ObservableObject {
 
         s.endedAt = Date()
         s.notes = sessionNotes
-        try? modelContext.save()
 
+        try? modelContext.save()   // ✅ OK to block here; user expects a “finish/save”
         endedAt = s.endedAt
         state = .ended
         stopTimer()
@@ -154,11 +161,14 @@ final class LiveSessionVM: ObservableObject {
 
         modelContext.insert(run)
         s.runs.append(run)
-        try? modelContext.save()
 
+        // ✅ Update UI immediately
         runs = s.runs.sorted(by: { $0.startedAt < $1.startedAt })
         activeRunID = run.id
         objectWillChange.send()
+
+        // ✅ Save deferred
+        scheduleSave(modelContext)
     }
 
     func continueRun(from priorRunID: UUID, modelContext: ModelContext) {
@@ -184,11 +194,14 @@ final class LiveSessionVM: ObservableObject {
 
         modelContext.insert(newRun)
         s.runs.append(newRun)
-        try? modelContext.save()
 
+        // ✅ Update UI immediately
         runs = s.runs.sorted(by: { $0.startedAt < $1.startedAt })
         activeRunID = newRun.id
         objectWillChange.send()
+
+        // ✅ Save deferred
+        scheduleSave(modelContext)
     }
 
     func endActiveRunIfNeeded(modelContext: ModelContext) {
@@ -196,7 +209,8 @@ final class LiveSessionVM: ObservableObject {
         let run = runs[idx]
         if run.endedAt == nil {
             run.endedAt = Date()
-            try? modelContext.save()
+            // ✅ Save deferred
+            scheduleSave(modelContext)
         }
         activeRunID = nil
         objectWillChange.send()
@@ -205,7 +219,6 @@ final class LiveSessionVM: ObservableObject {
     func updateRun(_ runID: UUID, modelContext: ModelContext, mutate: (FirearmRun) -> Void) {
         guard let run = runs.first(where: { $0.id == runID }) else { return }
         mutate(run)
-        try? modelContext.save()
         objectWillChange.send()
     }
 
@@ -215,7 +228,6 @@ final class LiveSessionVM: ObservableObject {
 
         if let s = session { s.runs.removeAll(where: { $0.id == runID }) }
         modelContext.delete(run)
-        try? modelContext.save()
 
         if let s = session {
             runs = s.runs.sorted(by: { $0.startedAt < $1.startedAt })
@@ -223,12 +235,16 @@ final class LiveSessionVM: ObservableObject {
             runs.removeAll(where: { $0.id == runID })
         }
         objectWillChange.send()
+
+        // ✅ Save deferred
+        scheduleSave(modelContext)
     }
 
     func updateSessionNotes(modelContext: ModelContext, notes: String) {
         sessionNotes = notes
         session?.notes = notes
-        try? modelContext.save()
+        // ✅ Save deferred while typing
+        scheduleSave(modelContext)
         objectWillChange.send()
     }
 
@@ -248,7 +264,8 @@ final class LiveSessionVM: ObservableObject {
 
         run.malfunctionsCount = max(0, run.malfunctionsCount + delta)
 
-        try? modelContext.save()
+        // ✅ Save deferred
+        scheduleSave(modelContext)
         objectWillChange.send()
     }
 
@@ -256,9 +273,12 @@ final class LiveSessionVM: ObservableObject {
 
     private func startTimer() {
         stopTimer()
+
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             guard let self else { return }
-            self.now = Date()
+            Task { @MainActor in
+                self.now = Date()
+            }
         }
     }
 
@@ -280,10 +300,10 @@ struct LiveSessionView: View {
 
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var entitlements: Entitlements
+    @Environment(\.scenePhase) private var scenePhase
 
     @Query(sort: \Firearm.createdAt, order: .reverse) private var firearms: [Firearm]
     @Query(sort: \AmmoProduct.createdAt, order: .reverse) private var ammoLibrary: [AmmoProduct]
-    @Query(sort: \SessionPhoto.createdAt, order: .reverse) private var allSessionPhotos: [SessionPhoto]
 
     @StateObject private var vm = LiveSessionVM()
 
@@ -305,6 +325,9 @@ struct LiveSessionView: View {
     @State private var confirmEndSession = false
     @State private var confirmDeleteRunID: UUID? = nil
 
+    @State private var roundsTextByRun: [UUID: String] = [:]
+    @State private var isEditingRoundsForRun: UUID? = nil
+
     // Photos flow
     @State private var showCamera = false
     @State private var pickedItems: [PhotosPickerItem] = []
@@ -317,8 +340,9 @@ struct LiveSessionView: View {
     @State private var showNoActiveRunPhotoAlert = false
 
     private var activeRunPhotos: [SessionPhoto] {
-        guard let rid = vm.activeRunID else { return [] }
-        return allSessionPhotos.filter { $0.run.id == rid }
+        guard let run = vm.activeRun else { return [] }
+        // If FirearmRun has a relationship array like `photos`:
+        return run.photos.sorted { $0.createdAt > $1.createdAt }
     }
 
     private func consumePreselectedStartIfNeeded() {
@@ -332,6 +356,35 @@ struct LiveSessionView: View {
         if vm.state == .running {
             vm.endActiveRunIfNeeded(modelContext: modelContext)
             vm.startNewRun(modelContext: modelContext, firearm: firearm)
+        }
+    }
+
+    //MARK: Ammo Helpers
+
+    private func roundsText(for run: FirearmRun) -> String {
+        if let t = roundsTextByRun[run.id] { return t }
+        return String(run.rounds)
+    }
+
+    private func setRoundsText(_ text: String, for run: FirearmRun) {
+        // Allow empty while typing
+        roundsTextByRun[run.id] = text
+
+        // Persist only when it parses
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let val = Int(trimmed) else { return }
+
+        vm.updateRun(run.id, modelContext: modelContext) { r in
+            r.rounds = max(0, val)
+        }
+    }
+
+    private func commitRoundsText(for run: FirearmRun) {
+        let trimmed = (roundsTextByRun[run.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let val = Int(trimmed) ?? run.rounds
+        roundsTextByRun[run.id] = String(max(0, val))
+        vm.updateRun(run.id, modelContext: modelContext) { r in
+            r.rounds = max(0, val)
         }
     }
 
@@ -363,11 +416,20 @@ struct LiveSessionView: View {
 
         for img in images {
             guard let jpeg = img.jpegData(compressionQuality: 0.82) else { continue }
-            let photo = SessionPhoto(run: run, imageData: jpeg, tag: pendingPhotoTag)
+
+            // ✅ make a small thumb to render fast
+            let thumb = img.preparingThumbnail(of: CGSize(width: 160, height: 160))?
+                .jpegData(compressionQuality: 0.7)
+
+            let photo = SessionPhoto(run: run, imageData: jpeg, thumbnailData: thumb, tag: pendingPhotoTag)
             modelContext.insert(photo)
         }
 
-        try? modelContext.save()
+        // ✅ Save deferred (never block UI)
+        Task { @MainActor in
+            try? modelContext.save()
+        }
+
         haptic(.medium)
     }
 
@@ -409,65 +471,76 @@ struct LiveSessionView: View {
 
     private func deletePhoto(_ p: SessionPhoto) {
         modelContext.delete(p)
-        try? modelContext.save()
+        // ✅ Save deferred
+        Task { @MainActor in
+            try? modelContext.save()
+        }
         haptic(.light)
     }
 
     // MARK: Body
 
     var body: some View {
-            ScrollView {
-                VStack(spacing: 12) {
-                    headerCard
-                    activeCard
+        ScrollView {
+            VStack(spacing: 12) {
+                headerCard
+                activeCard
 
-                    if !rangeMode {
-                        runsCard
-                        notesCard
-                        debugCard
-                    } else {
-                        disclosureExtras
+                if !rangeMode {
+                    runsCard
+                    notesCard
+                    debugCard
+                } else {
+                    disclosureExtras
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 90)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .navigationTitle("Live Session")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { topMenu }
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    // Commit active run total if needed
+                    if let run = vm.activeRun {
+                        commitRoundsText(for: run)
                     }
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 90)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("Live Session")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { topMenu }
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { focusedField = nil }
+                    isEditingRoundsForRun = nil
+                    focusedField = nil
                 }
             }
-            .safeAreaInset(edge: .bottom) { bottomBar }
+        }
+        .safeAreaInset(edge: .bottom) { bottomBar }
 
-            .alert("Stop session?", isPresented: $confirmEndSession) {
-                Button("Stop Session", role: .destructive) { endSessionTapped() }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This will finalize the session and save all runs.")
-            }
+        .alert("Stop session?", isPresented: $confirmEndSession) {
+            Button("Stop Session", role: .destructive) { endSessionTapped() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will finalize the session and save all runs.")
+        }
 
-            .confirmationDialog("Delete run?", isPresented: Binding(
-                get: { confirmDeleteRunID != nil },
-                set: { if !$0 { confirmDeleteRunID = nil } }
-            ), titleVisibility: .visible) {
-                Button("Delete Run", role: .destructive) {
-                    if let id = confirmDeleteRunID {
-                        vm.deleteRun(id, modelContext: modelContext)
-                        selectedMalfunctionKindByRun[id] = nil
-                    }
-                    confirmDeleteRunID = nil
+        .confirmationDialog("Delete run?", isPresented: Binding(
+            get: { confirmDeleteRunID != nil },
+            set: { if !$0 { confirmDeleteRunID = nil } }
+        ), titleVisibility: .visible) {
+            Button("Delete Run", role: .destructive) {
+                if let id = confirmDeleteRunID {
+                    vm.deleteRun(id, modelContext: modelContext)
+                    selectedMalfunctionKindByRun[id] = nil
                 }
-                Button("Cancel", role: .cancel) { confirmDeleteRunID = nil }
-            } message: {
-                Text("This can’t be undone.")
+                confirmDeleteRunID = nil
             }
+            Button("Cancel", role: .cancel) { confirmDeleteRunID = nil }
+        } message: {
+            Text("This can’t be undone.")
+        }
 
-            .sheet(isPresented: $showFirearmPicker) {
+        .sheet(isPresented: $showFirearmPicker) {
+            NavigationStack {
                 FirearmPickerSheet(
                     firearms: firearms,
                     onPick: { picked in
@@ -484,7 +557,10 @@ struct LiveSessionView: View {
                     }
                 )
             }
-            .sheet(isPresented: $showAmmoPicker) {
+        }
+
+        .sheet(isPresented: $showAmmoPicker) {
+            NavigationStack {
                 AmmoPickerSheet(
                     ammo: ammoLibrary,
                     selectedID: ammoPickerRunID.flatMap { rid in
@@ -515,11 +591,24 @@ struct LiveSessionView: View {
                     }
                 )
             }
+        }
 
-            .onAppear { consumePreselectedStartIfNeeded() }
-            .onChange(of: firearms.count) { _, _ in consumePreselectedStartIfNeeded() }
-            .onAppear { syncIdleTimer() }
-            .onChange(of: vm.state) { _, _ in syncIdleTimer() }
+        .onAppear { consumePreselectedStartIfNeeded() }
+        .onChange(of: firearms.count) { _, _ in consumePreselectedStartIfNeeded() }
+        .onAppear { syncIdleTimer() }
+        .onChange(of: vm.state) { _, _ in syncIdleTimer() }
+        .onDisappear {
+            Task { @MainActor in
+                try? modelContext.save()
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                Task { @MainActor in
+                    try? modelContext.save()
+                }
+            }
+        }
     }
 
     // MARK: - Menus / Bars
@@ -706,6 +795,7 @@ struct LiveSessionView: View {
             .ignoresSafeArea()
         }
         .sheet(isPresented: $showPhotoTagSheet) {
+            NavigationStack {
                 VStack(spacing: 14) {
                     Text("Tag these photo(s)")
                         .font(.headline)
@@ -745,20 +835,21 @@ struct LiveSessionView: View {
                 .padding()
                 .navigationTitle("Photo Tag")
                 .navigationBarTitleDisplayMode(.inline)
+            }
         }
         .sheet(item: $selectedPhotoForPreview) { (p: SessionPhoto) in
-                PhotoPreview(photo: p)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button(role: .destructive) {
-                                deletePhoto(p)
-                                selectedPhotoForPreview = nil
-                            } label: { Image(systemName: "trash") }
-                        }
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button("Done") { selectedPhotoForPreview = nil }
-                        }
+            PhotoPreview(photo: p)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(role: .destructive) {
+                            deletePhoto(p)
+                            selectedPhotoForPreview = nil
+                        } label: { Image(systemName: "trash") }
                     }
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Done") { selectedPhotoForPreview = nil }
+                    }
+                }
         }
     }
 
@@ -784,8 +875,16 @@ struct LiveSessionView: View {
                     ammoPickerRow(run: run)
 
                     VStack(alignment: .leading, spacing: 12) {
-                        roundsQuickControl(run: run)
+                        totalRoundsEntry(run: run)
+                        magsLoggedControl(run: run)
+                        roundsCorrectionsControl(run: run)
                         malfunctionsControl(run: run)
+                    }
+                    .onChange(of: run.rounds) { _, newValue in
+                        // Keep the total TextField synced with button taps + mag taps
+                        if isEditingRoundsForRun != run.id {
+                            roundsTextByRun[run.id] = String(newValue)
+                        }
                     }
 
                     HStack {
@@ -948,34 +1047,80 @@ struct LiveSessionView: View {
     private func roundsQuickControl(run: FirearmRun) -> some View {
         let mags = run.firearm.magazines.sorted(by: { $0.capacity < $1.capacity })
         let selected = run.selectedMagazine ?? mags.first
-        let cap = selected?.capacity ?? 17
+        let cap = max(1, selected?.capacity ?? 17)
 
-        let cols = Array(repeating: GridItem(.flexible(), spacing: 8), count: rangeMode ? 3 : 4)
+        // Derived “mags totaled”
+        let fullMags = run.rounds / cap
+        let remainder = run.rounds % cap
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Rounds").font(.caption).foregroundStyle(.secondary)
+                Text("Rounds")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Spacer()
-                Text("\(run.rounds)").monospacedDigit().fontWeight(.semibold)
-            }
 
-            LazyVGrid(columns: cols, spacing: 8) {
-                quickPill("+5")  { bumpRounds(runID: run.id, delta: 5) }
-                quickPill("+10") { bumpRounds(runID: run.id, delta: 10) }
-                quickPill("+15") { bumpRounds(runID: run.id, delta: 15) }
-                quickPill("+20") { bumpRounds(runID: run.id, delta: 20) }
-                quickPill("+25") { bumpRounds(runID: run.id, delta: 25) }
-                quickPill("+50") { bumpRounds(runID: run.id, delta: 50) }
+                // Right side: mags tally (fast feedback)
+                HStack(spacing: 8) {
+                    Text("Mags:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
-                if !rangeMode {
-                    quickPill("+100") { bumpRounds(runID: run.id, delta: 100) }
-                    quickPill("Reset") {
-                        vm.updateRun(run.id, modelContext: modelContext) { r in r.rounds = 0 }
-                        haptic(.light)
-                    }
+                    Text(remainder == 0
+                         ? "\(fullMags)"
+                         : "\(fullMags) + \(remainder)")
+                        .monospacedDigit()
+                        .font(.subheadline.weight(.semibold))
+
+                    Text("@\(cap)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
+            // Primary: total entry
+            HStack(spacing: 10) {
+                Text("Total")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                TextField("0", text: Binding(
+                    get: { roundsText(for: run) },
+                    set: { setRoundsText($0, for: run) }
+                ))
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(.trailing)
+                .font(.title3.weight(.semibold))
+                .monospacedDigit()
+                .frame(minWidth: 90)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.secondary.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(.quaternary, lineWidth: 1)
+                )
+            }
+
+            // Primary quick deltas (includes understack corrections)
+            HStack(spacing: 10) {
+                Button("−1") { bumpRounds(runID: run.id, delta: -1) }
+                Button("−2") { bumpRounds(runID: run.id, delta: -2) }
+                Button("−5") { bumpRounds(runID: run.id, delta: -5) }
+
+                Spacer()
+
+                Button("+1") { bumpRounds(runID: run.id, delta: 1) }
+                Button("+2") { bumpRounds(runID: run.id, delta: 2) }
+                Button("+5") { bumpRounds(runID: run.id, delta: 5) }
+            }
+            .buttonStyle(.bordered)
+
+            // Mag picker + mag-based accelerators (secondary)
             HStack(spacing: 10) {
                 Menu {
                     if mags.isEmpty {
@@ -1018,9 +1163,29 @@ struct LiveSessionView: View {
 
                 Spacer()
 
-                Button("+1 Mag") { bumpRounds(runID: run.id, delta: cap) }.buttonStyle(.bordered)
-                Button("+2") { bumpRounds(runID: run.id, delta: cap * 2) }.buttonStyle(.bordered)
-                Button("−1") { bumpRounds(runID: run.id, delta: -cap) }.buttonStyle(.bordered)
+                Button("−1 Mag") { bumpRounds(runID: run.id, delta: -cap) }
+                    .buttonStyle(.bordered)
+
+                Button("+1 Mag") { bumpRounds(runID: run.id, delta: cap) }
+                    .buttonStyle(.bordered)
+
+                Menu {
+                    Button("+10") { bumpRounds(runID: run.id, delta: 10) }
+                    Button("+15") { bumpRounds(runID: run.id, delta: 15) }
+                    Button("+20") { bumpRounds(runID: run.id, delta: 20) }
+                    Divider()
+                    Button("+25") { bumpRounds(runID: run.id, delta: 25) }
+                    Button("+50") { bumpRounds(runID: run.id, delta: 50) }
+                    Divider()
+                    Button("Reset", role: .destructive) {
+                        vm.updateRun(run.id, modelContext: modelContext) { r in r.rounds = 0 }
+                        roundsTextByRun[run.id] = "0"
+                        haptic(.light)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.button)
             }
         }
     }
@@ -1192,8 +1357,12 @@ struct LiveSessionView: View {
 
     private func startSessionTapped() {
         focusedField = nil
-        vm.startSession(modelContext: modelContext)
-        haptic(.medium)
+
+        // ✅ Ensure the gesture handler returns immediately (prevents "System gesture gate timed out")
+        Task { @MainActor in
+            vm.startSession(modelContext: modelContext)
+            haptic(.medium)
+        }
     }
 
     private func addRunTapped() {
@@ -1232,7 +1401,176 @@ struct LiveSessionView: View {
         vm.updateRun(runID, modelContext: modelContext) { r in
             r.rounds = max(0, r.rounds + delta)
         }
+
+        if let r = vm.runs.first(where: { $0.id == runID }) {
+            roundsTextByRun[runID] = String(r.rounds)
+        }
+
         haptic(.light)
+    }
+
+    private func totalRoundsEntry(run: FirearmRun) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Total Rounds")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                TextField(
+                    "0",
+                    text: Binding(
+                        get: {
+                            roundsTextByRun[run.id] ?? String(run.rounds)
+                        },
+                        set: { newValue in
+                            // Allow empty while typing
+                            roundsTextByRun[run.id] = newValue
+                            isEditingRoundsForRun = run.id
+
+                            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard let raw = Int(trimmed) else { return }
+                            let value = max(0, raw)
+
+                            vm.updateRun(run.id, modelContext: modelContext) { r in
+                                r.rounds = max(0, value)
+                            }
+                        }
+                    )
+                )
+                .keyboardType(.numberPad)
+                .font(.largeTitle.weight(.bold))
+                .monospacedDigit()
+                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(.secondary.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(.quaternary, lineWidth: 1)
+                )
+                .onTapGesture {
+                    isEditingRoundsForRun = run.id
+                }
+                .onChange(of: focusedField) { _, newValue in
+                    // If we were editing this run and focus moved away, commit.
+                    if newValue == nil, isEditingRoundsForRun == run.id {
+                        commitRoundsText(for: run)
+                        isEditingRoundsForRun = nil
+                    }
+                }
+
+                // Optional clear/reset shortcut
+                Button {
+                    vm.updateRun(run.id, modelContext: modelContext) { r in r.rounds = 0 }
+                    roundsTextByRun[run.id] = "0"
+                    isEditingRoundsForRun = nil
+                    haptic(.light)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func magsLoggedControl(run: FirearmRun) -> some View {
+        let mags = sortedMags(for: run.firearm)
+
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Mags Logged")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if mags.isEmpty {
+                Text("Add magazine types to this firearm to enable one-tap mag logging.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(mags) { mag in
+                        Button {
+                            bumpRounds(runID: run.id, delta: mag.capacity)
+                        } label: {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "magazine.fill")
+                                            .foregroundStyle(.secondary)
+
+                                        Text(mag.displayName) // “OEM 17 round”, “Atlas 140mm 21”
+                                            .font(.subheadline.weight(.semibold))
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                    }
+
+                                    Text("\(mag.capacity) rounds")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+
+                                Text("+\(mag.capacity)")
+                                    .font(.headline.weight(.semibold))
+                                    .monospacedDigit()
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(.secondary.opacity(0.10))
+                                    .clipShape(Capsule())
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(.secondary.opacity(0.06))
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .strokeBorder(.quaternary, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                bumpRounds(runID: run.id, delta: -mag.capacity)
+                            } label: {
+                                Label("Remove \(mag.capacity) rounds", systemImage: "minus.circle")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func roundsCorrectionsControl(run: FirearmRun) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Adjust")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                Button("−1") { bumpRounds(runID: run.id, delta: -1) }
+                Button("−2") { bumpRounds(runID: run.id, delta: -2) }
+                Button("−5") { bumpRounds(runID: run.id, delta: -5) }
+
+                Spacer()
+
+                Button("+1") { bumpRounds(runID: run.id, delta: 1) }
+                Button("+2") { bumpRounds(runID: run.id, delta: 2) }
+                Button("+5") { bumpRounds(runID: run.id, delta: 5) }
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+
+    private func sortedMags(for firearm: Firearm) -> [FirearmMagazine] {
+        firearm.magazines.sorted {
+            if $0.capacity != $1.capacity { return $0.capacity < $1.capacity }
+            return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
     }
 
     private func selectedKind(for runID: UUID) -> MalfunctionKind {
@@ -1423,7 +1761,9 @@ private struct RunNotesEditor: View {
             .submitLabel(.done)
             .focused($focusedField, equals: .runNotes(runID))
             .onSubmit { focusedField = nil }
-            .onChange(of: text) { onCommit($0) }
+            .onChange(of: text) { _, newValue in
+                onCommit(newValue)
+            }
     }
 }
 
@@ -1444,26 +1784,26 @@ private struct FirearmPickerSheet: View {
     }
 
     var body: some View {
-            List {
-                ForEach(filtered) { f in
-                    Button {
-                        onPick(f)
-                        dismiss()
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(f.displayName).fontWeight(.semibold)
-                            Text(f.caliber).font(.caption).foregroundStyle(.secondary)
-                        }
+        List {
+            ForEach(filtered) { f in
+                Button {
+                    onPick(f)
+                    dismiss()
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(f.displayName).fontWeight(.semibold)
+                        Text(f.caliber).font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
-            .navigationTitle("Select Firearm")
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic))
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { onCancel(); dismiss() }
-                }
+        }
+        .navigationTitle("Select Firearm")
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic))
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { onCancel(); dismiss() }
             }
+        }
     }
 }
 
@@ -1488,63 +1828,63 @@ private struct AmmoPickerSheet: View {
     }
 
     var body: some View {
-            List {
-                Section {
-                    Button(role: .destructive) {
-                        onClear()
-                        dismiss()
-                    } label: {
-                        Label("Clear Ammo", systemImage: "xmark.circle")
-                    }
+        List {
+            Section {
+                Button(role: .destructive) {
+                    onClear()
+                    dismiss()
+                } label: {
+                    Label("Clear Ammo", systemImage: "xmark.circle")
                 }
+            }
 
-                Section("Ammo") {
-                    if filtered.isEmpty {
-                        ContentUnavailableView(
-                            "No matches",
-                            systemImage: "tray.fill",
-                            description: Text("Try another search.")
-                        )
-                    } else {
-                        ForEach(filtered) { a in
-                            Button {
-                                onPick(a)
-                                dismiss()
-                            } label: {
-                                HStack(spacing: 12) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(shortTitle(a))
-                                            .font(.headline)
-                                            .lineLimit(1)
+            Section("Ammo") {
+                if filtered.isEmpty {
+                    ContentUnavailableView(
+                        "No matches",
+                        systemImage: "tray.fill",
+                        description: Text("Try another search.")
+                    )
+                } else {
+                    ForEach(filtered) { a in
+                        Button {
+                            onPick(a)
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(shortTitle(a))
+                                        .font(.headline)
+                                        .lineLimit(1)
 
-                                        Text(a.displayName)
-                                            .font(.footnote)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(2)
-                                    }
-
-                                    Spacer()
-
-                                    if selectedID == a.id {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.secondary)
-                                    }
+                                    Text(a.displayName)
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
                                 }
-                                .padding(.vertical, 4)
+
+                                Spacer()
+
+                                if selectedID == a.id {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
                             }
-                            .buttonStyle(.plain)
+                            .padding(.vertical, 4)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
-            .navigationTitle("Select Ammo")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic))
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { onCancel(); dismiss() }
-                }
+        }
+        .navigationTitle("Select Ammo")
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic))
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { onCancel(); dismiss() }
             }
+        }
     }
 
     private func shortTitle(_ a: AmmoProduct) -> String {
@@ -1561,15 +1901,14 @@ private struct PhotoThumb: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Group {
-                if let img = UIImage(data: photo.imageData) {
-                    Image(uiImage: img)
-                        .resizable()
-                        .scaledToFill()
+                if let data = photo.thumbnailData, let img = UIImage(data: data) {
+                    Image(uiImage: img).resizable().scaledToFill()
+                } else if let img = UIImage(data: photo.imageData) {
+                    Image(uiImage: img).resizable().scaledToFill()
                 } else {
                     ZStack {
                         Rectangle().fill(.secondary.opacity(0.15))
-                        Image(systemName: "photo")
-                            .foregroundStyle(.secondary)
+                        Image(systemName: "photo").foregroundStyle(.secondary)
                     }
                 }
             }

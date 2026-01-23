@@ -54,8 +54,24 @@ struct DashboardView: View {
         return d.formatted(date: .abbreviated, time: .shortened)
     }
 
+    // ✅ Most used firearm = firearm with max rounds across runs in current range
     private var mostUsedFirearm: Firearm? {
-        firearms.max(by: { $0.totalRounds < $1.totalRounds })
+        guard !firearms.isEmpty else { return nil }
+        guard !filteredRuns.isEmpty else { return nil }
+
+        var totalsByFirearmID: [UUID: Int] = [:]
+        for run in filteredRuns {
+            totalsByFirearmID[run.firearm.id, default: 0] += run.rounds
+        }
+
+        guard let topID = totalsByFirearmID.max(by: { $0.value < $1.value })?.key else { return nil }
+        return firearms.first(where: { $0.id == topID })
+    }
+
+    private func roundsForFirearm(_ firearm: Firearm) -> Int {
+        filteredRuns
+            .filter { $0.firearm.id == firearm.id }
+            .reduce(0) { $0 + $1.rounds }
     }
 
     private var recentLiveRows: [LiveSessionRowVM] {
@@ -101,13 +117,17 @@ struct DashboardView: View {
             Text("Dashboard")
                 .font(.title.bold())
 
-            if let s = lastActivitySession {
-                NavigationLink(value: AppRoute.sessionDetail(s.id)) {
+            if lastActivitySession != nil {
+                Button {
+                    goToLastActivity()
+                } label: {
                     Text("Last activity: \(lastActivityDateText)")
                         .font(.subheadline)
                         .foregroundStyle(Brand.accent.opacity(scheme == .dark ? 0.85 : 0.75))
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)
+                .contentShape(Rectangle())
             } else {
                 Text("Start a Live Session to begin tracking.")
                     .font(.subheadline)
@@ -142,27 +162,42 @@ struct DashboardView: View {
                 GridItem(.flexible(), spacing: 12)
             ], spacing: 12) {
 
-                NavigationLink(value: AppRoute.firearmsIndex) {
+                Button {
+                    goToFirearms()
+                } label: {
                     StatCard(title: "Firearms", value: "\(totalFirearms)", systemImage: "scope")
                 }
                 .buttonStyle(.plain)
+                .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.m, style: .continuous))
 
-                NavigationLink(value: AppRoute.ammoIndex) {
+                Button {
+                    goToAmmo()
+                } label: {
                     StatCard(title: "Total rounds", value: "\(totalRounds)", systemImage: "target")
                 }
                 .buttonStyle(.plain)
+                .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.m, style: .continuous))
 
                 if let mf = mostUsedFirearm {
-                    NavigationLink(value: AppRoute.firearmDetail(mf.persistentModelID)) {
-                        StatCard(title: "Most used", value: mf.displayName, systemImage: "flame")
+                    Button {
+                        go(.firearmDetail(mf.persistentModelID))
+                    } label: {
+                        StatCard(
+                            title: "Most used",
+                            value: "\(mf.displayName) • \(roundsForFirearm(mf))",
+                            systemImage: "flame"
+                        )
                     }
                     .buttonStyle(.plain)
+                    .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.m, style: .continuous))
                 } else {
                     StatCard(title: "Most used", value: "—", systemImage: "flame")
                 }
 
                 if let s = lastActivitySession {
-                    NavigationLink(value: AppRoute.sessionDetail(s.id)) {
+                    Button {
+                        go(.sessionDetail(s.id))
+                    } label: {
                         StatCard(
                             title: "Last activity",
                             value: s.startedAt.formatted(date: .abbreviated, time: .omitted),
@@ -170,6 +205,7 @@ struct DashboardView: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.m, style: .continuous))
                 } else {
                     StatCard(title: "Last activity", value: "—", systemImage: "clock")
                 }
@@ -202,11 +238,15 @@ struct DashboardView: View {
                         showGateAlert = true
                     }
                 }
+                .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.l, style: .continuous))
 
-                NavigationLink(value: AppRoute.firearmsIndex) {
+                Button {
+                    goToFirearms()
+                } label: {
                     SquareActionTile(title: "View Firearms", systemImage: "list.bullet")
                 }
                 .buttonStyle(.plain)
+                .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.l, style: .continuous))
             }
         }
         .padding(14)
@@ -241,6 +281,7 @@ struct DashboardView: View {
         }
         .buttonStyle(.plain)
         .accentCard(radius: Brand.Radius.l)
+        .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.l, style: .continuous))
     }
 
     private var recentActivity: some View {
@@ -269,7 +310,9 @@ struct DashboardView: View {
     }
 
     private func liveActivityRow(row: LiveSessionRowVM) -> some View {
-        NavigationLink(value: AppRoute.sessionDetail(row.id)) {
+        Button {
+            goToSession(row.id)
+        } label: {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text(row.title)
@@ -313,9 +356,34 @@ struct DashboardView: View {
                 }
             }
             .padding(12)
+            .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.m, style: .continuous))
         }
         .buttonStyle(.plain)
         .surfaceCard(radius: Brand.Radius.m)
+        .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.m, style: .continuous))
+    }
+
+    // MARK: - Navigation (No NavigationLink)
+
+    private func go(_ route: AppRoute) {
+        router.dashboardPath.append(route)
+    }
+
+    private func goToFirearms() { go(.firearmsIndex) }
+    private func goToAmmo() { go(.ammoIndex) }
+
+    private func goToMostUsed() {
+        guard let mf = mostUsedFirearm else { return }
+        go(.firearmDetail(mf.persistentModelID))
+    }
+
+    private func goToLastActivity() {
+        guard let s = lastActivitySession else { return }
+        go(.sessionDetail(s.id))
+    }
+
+    private func goToSession(_ id: UUID) {
+        go(.sessionDetail(id))
     }
 
     // MARK: - Gating
