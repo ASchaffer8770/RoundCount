@@ -20,7 +20,6 @@ struct PaywallView: View {
     private let yearlySavingsText = "Save ~17% vs monthly"
 
     var body: some View {
-        NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
 
@@ -49,7 +48,6 @@ struct PaywallView: View {
                     Button("Close") { dismiss() }
                 }
             }
-        }
     }
 
     // MARK: - Sections

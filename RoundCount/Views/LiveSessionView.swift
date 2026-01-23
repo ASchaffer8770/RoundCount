@@ -7,11 +7,9 @@
 
 import SwiftUI
 import SwiftData
-import Combine
 import UIKit
 import PhotosUI
-import Foundation
-
+import Combine
 
 // MARK: - ViewModel (SwiftData-backed)
 
@@ -23,7 +21,7 @@ final class LiveSessionVM: ObservableObject {
     @Published var state: State = .idle
     @Published var startedAt: Date? = nil
     @Published var endedAt: Date? = nil
-    
+
     @Published private(set) var elapsedCarry: TimeInterval = 0
     private var resumeAnchor: Date? = nil
 
@@ -134,7 +132,7 @@ final class LiveSessionVM: ObservableObject {
         sessionNotes = ""
         now = Date()
     }
-    
+
     // MARK: Runs
 
     func startNewRun(modelContext: ModelContext, firearm: Firearm) {
@@ -181,7 +179,6 @@ final class LiveSessionVM: ObservableObject {
             selectedMagazine: prior.selectedMagazine
         )
 
-        // carry forward ammo selection (nice UX)
         newRun.ammo = prior.ammo
         newRun.defaultAmmo = prior.defaultAmmo
 
@@ -249,7 +246,6 @@ final class LiveSessionVM: ObservableObject {
             run.malfunctions.append(m)
         }
 
-        // keep summary in sync
         run.malfunctionsCount = max(0, run.malfunctionsCount + delta)
 
         try? modelContext.save()
@@ -281,25 +277,48 @@ struct LiveSessionView: View {
     init(preselectedFirearmID: UUID? = nil) {
         self.preselectedFirearmID = preselectedFirearmID
     }
-    
+
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var entitlements: Entitlements
+
     @Query(sort: \Firearm.createdAt, order: .reverse) private var firearms: [Firearm]
     @Query(sort: \AmmoProduct.createdAt, order: .reverse) private var ammoLibrary: [AmmoProduct]
-
-    @State private var showAmmoPicker = false
-    @State private var ammoPickerRunID: UUID? = nil
+    @Query(sort: \SessionPhoto.createdAt, order: .reverse) private var allSessionPhotos: [SessionPhoto]
 
     @StateObject private var vm = LiveSessionVM()
 
     @AppStorage("liveSession.rangeMode") private var rangeMode: Bool = true
-
     @State private var selectedMalfunctionKindByRun: [UUID: MalfunctionKind] = [:]
 
     @FocusState private var focusedField: FocusField?
     enum FocusField: Hashable {
         case runNotes(UUID)
         case sessionNotes
+    }
+
+    @State private var showAmmoPicker = false
+    @State private var ammoPickerRunID: UUID? = nil
+
+    @State private var showFirearmPicker = false
+    @State private var pendingAddRun = false
+
+    @State private var confirmEndSession = false
+    @State private var confirmDeleteRunID: UUID? = nil
+
+    // Photos flow
+    @State private var showCamera = false
+    @State private var pickedItems: [PhotosPickerItem] = []
+    @State private var selectedPhotoForPreview: SessionPhoto? = nil
+
+    @State private var pendingUIImage: UIImage? = nil
+    @State private var pendingPickerImages: [UIImage] = []
+    @State private var pendingPhotoTag: SessionPhotoTag = .target
+    @State private var showPhotoTagSheet = false
+    @State private var showNoActiveRunPhotoAlert = false
+
+    private var activeRunPhotos: [SessionPhoto] {
+        guard let rid = vm.activeRunID else { return [] }
+        return allSessionPhotos.filter { $0.run.id == rid }
     }
 
     private func consumePreselectedStartIfNeeded() {
@@ -316,66 +335,48 @@ struct LiveSessionView: View {
         }
     }
 
-    @State private var showFirearmPicker = false
-    @State private var pendingAddRun = false
+    // MARK: Photo helpers
 
-    @State private var confirmEndSession = false
-    @State private var confirmDeleteRunID: UUID? = nil
-    
-    // MARK: Photos (V1)
-    @State private var showCamera = false
-    @State private var pickedItems: [PhotosPickerItem] = []
-    @State private var selectedPhotoForPreview: SessionPhoto? = nil
-
-    @Query(sort: \SessionPhoto.createdAt, order: .reverse)
-    private var allSessionPhotos: [SessionPhoto]
-
-    private var currentSessionPhotos: [SessionPhoto] {
-        guard let sid = vm.session?.id else { return [] }
-        return allSessionPhotos.filter { $0.session?.id == sid }
-    }
-
-    private func addPhoto(_ image: UIImage) {
-        guard let s = vm.session else { return }
+    private func beginAddPhotoFlow(images: [UIImage]) {
         guard vm.activeRun != nil else {
-            print("Attempted to add photo without an active run")
             haptic(.light)
+            showNoActiveRunPhotoAlert = true
             return
         }
 
-        guard let jpegData = image.jpegData(compressionQuality: 0.82) else {
-            haptic(.light)
-            return
-        }
-
-        do {
-            // Create model first so we have a stable UUID for filename
-            let photo = SessionPhoto(filePath: "", session: s, run: vm.activeRun)
-
-            // Save to Sessions/<sessionId>/<photoId>.jpg and store RELATIVE path
-            let relative = try PhotoStore.saveJPEGForSession(
-                sessionId: s.id,
-                photoId: photo.id,
-                jpegData: jpegData
-            )
-            photo.filePath = relative
-
-            modelContext.insert(photo)
-            try modelContext.save()
-            haptic(.medium)
-        } catch {
-            print("addPhoto failed:", error)
-            haptic(.light)
-        }
+        focusedField = nil
+        pendingPickerImages = images
+        pendingUIImage = images.first
+        pendingPhotoTag = .target
+        showPhotoTagSheet = true
     }
-    
+
+    private func persistPendingPhotosToActiveRun() {
+        guard let run = vm.activeRun else { return }
+
+        let images = pendingPickerImages
+        pendingPickerImages = []
+        pendingUIImage = nil
+        showPhotoTagSheet = false
+
+        guard !images.isEmpty else { return }
+
+        for img in images {
+            guard let jpeg = img.jpegData(compressionQuality: 0.82) else { continue }
+            let photo = SessionPhoto(run: run, imageData: jpeg, tag: pendingPhotoTag)
+            modelContext.insert(photo)
+        }
+
+        try? modelContext.save()
+        haptic(.medium)
+    }
+
     private func handlePickedPhotos(_ items: [PhotosPickerItem]) {
         guard !items.isEmpty else { return }
 
-        // Require an active run (your intended UX)
         guard vm.activeRun != nil else {
-            print("PhotosPicker: no active run; ignoring selection")
             haptic(.light)
+            showNoActiveRunPhotoAlert = true
             pickedItems = []
             return
         }
@@ -383,110 +384,38 @@ struct LiveSessionView: View {
         focusedField = nil
 
         Task {
+            var images: [UIImage] = []
+            images.reserveCapacity(items.count)
+
             for item in items {
                 if let data = try? await item.loadTransferable(type: Data.self),
                    let image = UIImage(data: data) {
-                    await MainActor.run { addPhoto(image) }
+                    images.append(image)
                 }
             }
 
-            await MainActor.run { pickedItems = [] }
+            await MainActor.run {
+                pickedItems = []
+                if !images.isEmpty {
+                    beginAddPhotoFlow(images: images)
+                }
+            }
         }
     }
 
+    private func addCameraPhoto(_ image: UIImage) {
+        beginAddPhotoFlow(images: [image])
+    }
 
     private func deletePhoto(_ p: SessionPhoto) {
-        PhotoStore.deletePhoto(relativePath: p.filePath)
         modelContext.delete(p)
         try? modelContext.save()
         haptic(.light)
     }
 
-    private var photosSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 10) {
-                Text("Photos")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Button {
-                    focusedField = nil
-                    showCamera = true
-                    haptic(.light)
-                } label: {
-                    Label("Camera", systemImage: "camera.fill")
-                        .labelStyle(.titleAndIcon)
-                }
-                .buttonStyle(ChipButtonStyle())
-
-                PhotosPicker(selection: $pickedItems, maxSelectionCount: 10, matching: .images) {
-                    Label("Library", systemImage: "photo.on.rectangle")
-                        .labelStyle(.titleAndIcon)
-                }
-                // 👇 PhotosPicker ignores some button styles unless you apply it like this
-                .buttonStyle(ChipButtonStyle())
-                .onChange(of: pickedItems) { _, newItems in
-                    handlePickedPhotos(newItems)
-                }
-            }
-
-            if vm.activeRun == nil {
-                Text("Start a run to add and save photos to this session.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            if currentSessionPhotos.isEmpty {
-                Text("Add target photos, malfunctions, or notes from the line.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(currentSessionPhotos) { p in
-                            PhotoThumb(photo: p)
-                                .onTapGesture { selectedPhotoForPreview = p }
-                                .contextMenu {
-                                    Button(role: .destructive) { deletePhoto(p) } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                }
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-        }
-        .sheet(isPresented: $showCamera) {
-            CameraCaptureView { image in
-                showCamera = false
-                if let image { addPhoto(image) }
-            }
-            .ignoresSafeArea()
-        }
-        .sheet(item: $selectedPhotoForPreview) { (p: SessionPhoto) in
-            NavigationStack {
-                PhotoPreview(photo: p)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button(role: .destructive) {
-                                deletePhoto(p)
-                                selectedPhotoForPreview = nil
-                            } label: { Image(systemName: "trash") }
-                        }
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button("Done") { selectedPhotoForPreview = nil }
-                        }
-                    }
-            }
-        }
-    }
-
+    // MARK: Body
 
     var body: some View {
-        NavigationStack {
             ScrollView {
                 VStack(spacing: 12) {
                     headerCard
@@ -515,7 +444,6 @@ struct LiveSessionView: View {
             }
             .safeAreaInset(edge: .bottom) { bottomBar }
 
-            // ✅ Fix "weird dialog": use alert for end-session confirmation
             .alert("Stop session?", isPresented: $confirmEndSession) {
                 Button("Stop Session", role: .destructive) { endSessionTapped() }
                 Button("Cancel", role: .cancel) { }
@@ -589,10 +517,9 @@ struct LiveSessionView: View {
             }
 
             .onAppear { consumePreselectedStartIfNeeded() }
-            .onChange(of: firearms.count) { _, _ in consumePreselectedStartIfNeeded() } // helps if firearms load slightly later
+            .onChange(of: firearms.count) { _, _ in consumePreselectedStartIfNeeded() }
             .onAppear { syncIdleTimer() }
             .onChange(of: vm.state) { _, _ in syncIdleTimer() }
-        }
     }
 
     // MARK: - Menus / Bars
@@ -628,15 +555,11 @@ struct LiveSessionView: View {
     private var bottomBar: some View {
         VStack(spacing: 0) {
             Divider()
-
             HStack(spacing: 12) {
                 switch vm.state {
-
                 case .idle:
-                    Button("Start Session") {
-                        startSessionTapped()
-                    }
-                    .buttonStyle(ActionButtonStyle(prominent: true))
+                    Button("Start Session") { startSessionTapped() }
+                        .buttonStyle(ActionButtonStyle(prominent: true))
 
                 case .running:
                     Button {
@@ -651,26 +574,18 @@ struct LiveSessionView: View {
                     }
                     .buttonStyle(ActionButtonStyle(prominent: true))
 
-                    Button("Pause") {
-                        pauseTapped()
-                    }
-                    .buttonStyle(ActionButtonStyle())
+                    Button("Pause") { pauseTapped() }
+                        .buttonStyle(ActionButtonStyle())
 
-                    Button("End") {
-                        confirmEndSession = true
-                    }
-                    .buttonStyle(ActionButtonStyle(role: .destructive))
+                    Button("End") { confirmEndSession = true }
+                        .buttonStyle(ActionButtonStyle(role: .destructive))
 
                 case .paused:
-                    Button("Resume") {
-                        resumeTapped()
-                    }
-                    .buttonStyle(ActionButtonStyle(prominent: true))
+                    Button("Resume") { resumeTapped() }
+                        .buttonStyle(ActionButtonStyle(prominent: true))
 
-                    Button("End") {
-                        confirmEndSession = true
-                    }
-                    .buttonStyle(ActionButtonStyle(role: .destructive))
+                    Button("End") { confirmEndSession = true }
+                        .buttonStyle(ActionButtonStyle(role: .destructive))
 
                 case .ended:
                     Button("New Session") {
@@ -722,7 +637,131 @@ struct LiveSessionView: View {
         }
     }
 
-    // ✅ Neon Active card
+    private var photosSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
+                Text("Photos")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button {
+                    focusedField = nil
+                    showCamera = true
+                    haptic(.light)
+                } label: {
+                    Label("Camera", systemImage: "camera.fill")
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(ChipButtonStyle())
+
+                PhotosPicker(selection: $pickedItems, maxSelectionCount: 10, matching: .images) {
+                    Label("Library", systemImage: "photo.on.rectangle")
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(ChipButtonStyle())
+                .onChange(of: pickedItems) { _, newItems in
+                    handlePickedPhotos(newItems)
+                }
+            }
+
+            if vm.activeRun == nil {
+                Text("Start a run to add photos. Photos attach to the active firearm run.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            if activeRunPhotos.isEmpty {
+                Text("Add target photos or malfunction evidence for this run.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(activeRunPhotos) { p in
+                            PhotoThumb(photo: p)
+                                .onTapGesture { selectedPhotoForPreview = p }
+                                .contextMenu {
+                                    Button(role: .destructive) { deletePhoto(p) } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .alert("Select a run first", isPresented: $showNoActiveRunPhotoAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Photos must be attached to a specific firearm run. Start or select a run first.")
+        }
+        .sheet(isPresented: $showCamera) {
+            CameraCaptureView { image in
+                showCamera = false
+                if let image { addCameraPhoto(image) }
+            }
+            .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showPhotoTagSheet) {
+                VStack(spacing: 14) {
+                    Text("Tag these photo(s)")
+                        .font(.headline)
+
+                    Picker("Tag", selection: $pendingPhotoTag) {
+                        ForEach(SessionPhotoTag.allCases) { t in
+                            Text(t.title).tag(t)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if let img = pendingUIImage {
+                        Image(uiImage: img)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 260)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .strokeBorder(.quaternary, lineWidth: 1)
+                            )
+                    }
+
+                    HStack(spacing: 12) {
+                        Button("Cancel", role: .cancel) {
+                            pendingPickerImages = []
+                            pendingUIImage = nil
+                            showPhotoTagSheet = false
+                        }
+
+                        Spacer()
+
+                        Button("Save") { persistPendingPhotosToActiveRun() }
+                            .buttonStyle(.borderedProminent)
+                    }
+                }
+                .padding()
+                .navigationTitle("Photo Tag")
+                .navigationBarTitleDisplayMode(.inline)
+        }
+        .sheet(item: $selectedPhotoForPreview) { (p: SessionPhoto) in
+                PhotoPreview(photo: p)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button(role: .destructive) {
+                                deletePhoto(p)
+                                selectedPhotoForPreview = nil
+                            } label: { Image(systemName: "trash") }
+                        }
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") { selectedPhotoForPreview = nil }
+                        }
+                    }
+        }
+    }
+
     private var activeCard: some View {
         Card(neon: true) {
             VStack(alignment: .leading, spacing: 12) {
@@ -737,7 +776,7 @@ struct LiveSessionView: View {
                             .clipShape(Capsule())
                     }
                 }
-                
+
                 photosSection
 
                 if let run = vm.activeRun {
@@ -1062,7 +1101,6 @@ struct LiveSessionView: View {
     private func firearmPickerRow(runID: UUID, selectedFirearmID: UUID) -> some View {
         HStack(spacing: 12) {
             Text("Firearm")
-
             Spacer(minLength: 8)
 
             Menu {
@@ -1082,12 +1120,9 @@ struct LiveSessionView: View {
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Text(
-                        firearms.first(where: { $0.id == selectedFirearmID })?.displayName
-                        ?? "Select firearm"
-                    )
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    Text(firearms.first(where: { $0.id == selectedFirearmID })?.displayName ?? "Select firearm")
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
                     Image(systemName: "chevron.down")
                         .font(.caption)
@@ -1107,11 +1142,9 @@ struct LiveSessionView: View {
         }
     }
 
-
     private func ammoPickerRow(run: FirearmRun) -> some View {
         HStack(spacing: 12) {
             Text("Ammo")
-
             Spacer(minLength: 8)
 
             Button {
@@ -1146,7 +1179,7 @@ struct LiveSessionView: View {
                 .background(.secondary.opacity(0.08))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(run.ammo == nil ? Color.secondary.opacity(0.35) : Color.secondary.opacity(0.20), lineWidth: 1)
+                        .strokeBorder(.quaternary, lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
@@ -1358,12 +1391,8 @@ private struct ActionButtonStyle: ButtonStyle {
     }
 
     private var borderColor: Color {
-        if role == .destructive {
-            return .red.opacity(0.9)
-        }
-        if prominent {
-            return Brand.accent.opacity(0.9)
-        }
+        if role == .destructive { return .red.opacity(0.9) }
+        if prominent { return Brand.accent.opacity(0.9) }
         return .secondary.opacity(0.25)
     }
 }
@@ -1415,7 +1444,6 @@ private struct FirearmPickerSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
             List {
                 ForEach(filtered) { f in
                     Button {
@@ -1436,7 +1464,6 @@ private struct FirearmPickerSheet: View {
                     Button("Cancel") { onCancel(); dismiss() }
                 }
             }
-        }
     }
 }
 
@@ -1461,7 +1488,6 @@ private struct AmmoPickerSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
             List {
                 Section {
                     Button(role: .destructive) {
@@ -1519,14 +1545,12 @@ private struct AmmoPickerSheet: View {
                     Button("Cancel") { onCancel(); dismiss() }
                 }
             }
-        }
     }
 
     private func shortTitle(_ a: AmmoProduct) -> String {
         let line = (a.productLine?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
         return line.isEmpty ? a.brand : "\(a.brand) \(line)"
     }
-
 }
 
 // MARK: - Photos UI (Live Session)
@@ -1535,25 +1559,34 @@ private struct PhotoThumb: View {
     let photo: SessionPhoto
 
     var body: some View {
-        Group {
-            if let img = PhotoStore.loadImage(relativePath: photo.filePath) {
-                Image(uiImage: img)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                ZStack {
-                    Rectangle().fill(.secondary.opacity(0.15))
-                    Image(systemName: "photo")
-                        .foregroundStyle(.secondary)
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if let img = UIImage(data: photo.imageData) {
+                    Image(uiImage: img)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ZStack {
+                        Rectangle().fill(.secondary.opacity(0.15))
+                        Image(systemName: "photo")
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
+            .frame(width: 76, height: 76)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(.quaternary, lineWidth: 1)
+            )
+
+            Image(systemName: photo.tag.systemImage)
+                .font(.caption2.weight(.semibold))
+                .padding(6)
+                .background(.ultraThinMaterial)
+                .clipShape(Circle())
+                .padding(6)
         }
-        .frame(width: 76, height: 76)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(.quaternary, lineWidth: 1)
-        )
     }
 }
 
@@ -1562,7 +1595,7 @@ private struct PhotoPreview: View {
 
     var body: some View {
         VStack {
-            if let img = PhotoStore.loadImage(relativePath: photo.filePath) {
+            if let img = UIImage(data: photo.imageData) {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFit()

@@ -49,7 +49,6 @@ struct AddFirearmView: View {
     }
 
     var body: some View {
-        NavigationStack {
             Form {
                 Section("Basics") {
                     TextField("Brand (e.g., Springfield, Glock)", text: $brand)
@@ -104,7 +103,6 @@ struct AddFirearmView: View {
                         .disabled(!canSave)
                 }
             }
-        }
     }
 
     private var canSave: Bool {

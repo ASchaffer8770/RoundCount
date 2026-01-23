@@ -24,7 +24,6 @@ struct AddGearView: View {
     @State private var installedAt: Date = .now
 
     var body: some View {
-        NavigationStack {
             Form {
                 Section("Gear") {
                     Picker("Type", selection: $type) {
@@ -63,7 +62,6 @@ struct AddGearView: View {
                         .disabled(!canSave)
                 }
             }
-        }
     }
 
     private var canSave: Bool {

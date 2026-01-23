@@ -13,7 +13,6 @@ struct MalfunctionEditorView: View {
     @Binding var draft: MalfunctionDraft
 
     var body: some View {
-        NavigationStack {
             Form {
                 Section("Malfunctions") {
                     StepperRow(title: "Failure to Feed", value: $draft.failureToFeed)
@@ -39,7 +38,6 @@ struct MalfunctionEditorView: View {
                     Button("Done") { dismiss() }
                 }
             }
-        }
     }
 }
 

@@ -20,24 +20,25 @@ struct AnalyticsDashboardView: View {
     @State private var lastSessionDate: Date? = nil
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if entitlements.isPro {
-                    content
-                } else {
-                    PaywallView(sourceFeature: .advancedAnalytics)
-                }
+        Group {
+            if entitlements.isPro {
+                content
+            } else {
+                PaywallView(sourceFeature: .advancedAnalytics)
             }
-            .navigationTitle("Analytics")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Close") { dismiss() }
-                }
-            }
-            .onAppear(perform: recompute)
-            .onChange(of: range) { _, _ in recompute() }
-            .onChange(of: allSessions.count) { _, _ in recompute() }
         }
+        .navigationTitle("Analytics")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            // If this is pushed in a NavigationStack, "Close" will pop.
+            // If it's ever presented modally, it will dismiss the sheet.
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Close") { dismiss() }
+            }
+        }
+        .onAppear { recompute() }
+        .onChange(of: range) { _, _ in recompute() }
+        .onChange(of: allSessions.count) { _, _ in recompute() }
     }
 
     private var content: some View {
@@ -68,14 +69,19 @@ struct AnalyticsDashboardView: View {
             Text("Rounds: \(totals.rounds)")
             Text("Time: \(totals.durationMinutesRounded)m")
             Text("Malfunctions: \(totals.malfunctions)")
+            Text("Avg / session: \(avgRoundsPerSession)")
         }
     }
 
     private var chart: some View {
         Section("Rounds over time") {
             if weekly.isEmpty {
-                Text("No data")
-                    .foregroundStyle(.secondary)
+                ContentUnavailableView(
+                    "No data",
+                    systemImage: "chart.bar",
+                    description: Text("Log a Live Session to see analytics.")
+                )
+                .foregroundStyle(.secondary)
             } else {
                 Chart {
                     ForEach(weekly) { b in
@@ -92,12 +98,17 @@ struct AnalyticsDashboardView: View {
 
     private var topFirearmsSection: some View {
         Section("Top Firearms") {
-            ForEach(topFirearms) { row in
-                HStack {
-                    Text(row.title)
-                    Spacer()
-                    Text("\(row.value) rds")
-                        .monospacedDigit()
+            if topFirearms.isEmpty {
+                Text("No data")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(topFirearms) { row in
+                    HStack {
+                        Text(row.title)
+                        Spacer()
+                        Text("\(row.value) rds")
+                            .monospacedDigit()
+                    }
                 }
             }
         }
@@ -113,10 +124,7 @@ struct AnalyticsDashboardView: View {
         topFirearms = AnalyticsService.topFirearmsByRounds(filtered)
 
         sessionsCount = filtered.count
-        avgRoundsPerSession = sessionsCount > 0
-            ? totals.rounds / sessionsCount
-            : 0
-
+        avgRoundsPerSession = sessionsCount > 0 ? (totals.rounds / sessionsCount) : 0
         lastSessionDate = filtered.first?.startedAt
     }
 }

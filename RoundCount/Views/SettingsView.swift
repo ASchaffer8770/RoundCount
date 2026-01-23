@@ -21,7 +21,6 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        NavigationStack {
             List {
                 Section {
                     settingsCard(title: "Account") {
@@ -127,7 +126,6 @@ struct SettingsView: View {
                     Button("Done") { dismiss() }
                 }
             }
-        }
     }
 
     // MARK: - Parent Card

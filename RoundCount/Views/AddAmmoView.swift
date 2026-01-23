@@ -39,7 +39,6 @@ struct AddAmmoView: View {
     }
 
     var body: some View {
-        NavigationStack {
             Form {
                 Section("Core") {
                     TextField("Brand (e.g., CCI, Federal)", text: $brand)
@@ -89,7 +88,6 @@ struct AddAmmoView: View {
                         .disabled(!canSave)
                 }
             }
-        }
     }
 
     private var canSave: Bool {

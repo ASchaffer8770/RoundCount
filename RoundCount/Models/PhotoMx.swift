@@ -9,22 +9,18 @@ import Foundation
 import SwiftData
 
 enum PhotoMaintenance {
-    static func purgeMissingPhotos(modelContext: ModelContext) {
-        let fm = FileManager.default
 
+    /// V1 (SwiftData-backed): photos are stored in `SessionPhoto.imageData` (external storage).
+    /// This purge removes corrupt/empty photo records.
+    static func purgeCorruptPhotos(modelContext: ModelContext) {
         let descriptor = FetchDescriptor<SessionPhoto>()
         guard let photos = try? modelContext.fetch(descriptor) else { return }
 
         var deleted = 0
 
         for p in photos {
-            guard let abs = PhotoStore.absolutePath(for: p.filePath) else {
-                modelContext.delete(p)
-                deleted += 1
-                continue
-            }
-
-            if !fm.fileExists(atPath: abs) {
+            // If bytes are missing/corrupt, delete the record.
+            if p.imageData.isEmpty {
                 modelContext.delete(p)
                 deleted += 1
             }
@@ -32,8 +28,7 @@ enum PhotoMaintenance {
 
         if deleted > 0 {
             try? modelContext.save()
-            print("🧹 Purged missing SessionPhoto records:", deleted)
+            print("🧹 Purged corrupt SessionPhoto records:", deleted)
         }
     }
 }
-

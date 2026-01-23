@@ -18,6 +18,11 @@ final class FirearmRun {
     // Ammo
     @Relationship var ammo: AmmoProduct?
     @Relationship var defaultAmmo: AmmoProduct?
+    
+    // Photos attached to this run
+    @Relationship(deleteRule: .cascade)
+    var photos: [SessionPhoto] = []
+
 
     var startedAt: Date
     var endedAt: Date?

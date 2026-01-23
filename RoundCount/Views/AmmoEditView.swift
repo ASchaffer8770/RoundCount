@@ -8,7 +8,6 @@ struct AmmoEditView: View {
     @Bindable var ammo: AmmoProduct
 
     var body: some View {
-        NavigationStack {
             Form {
                 Section("Ammo") {
                     TextField("Brand", text: $ammo.brand)
@@ -65,7 +64,6 @@ struct AmmoEditView: View {
                     Button("Save") { save() }
                 }
             }
-        }
     }
 
     private func save() {

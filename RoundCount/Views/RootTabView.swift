@@ -1,4 +1,3 @@
-// Views/RootTabView.swift
 import SwiftUI
 
 struct RootTabView: View {
@@ -10,7 +9,7 @@ struct RootTabView: View {
             NavigationStack(path: router.pathBinding(for: .dashboard)) {
                 DashboardView()
                     .navigationDestination(for: AppRoute.self) { route in
-                        RouteDestination(route)
+                        RouteDestination(route: route)
                     }
             }
             .tabItem { Label("Dashboard", systemImage: "square.grid.2x2") }
@@ -19,7 +18,7 @@ struct RootTabView: View {
             NavigationStack(path: router.pathBinding(for: .firearms)) {
                 FirearmsView()
                     .navigationDestination(for: AppRoute.self) { route in
-                        RouteDestination(route)
+                        RouteDestination(route: route)
                     }
             }
             .tabItem { Label("Firearms", systemImage: "scope") }
@@ -28,17 +27,16 @@ struct RootTabView: View {
             NavigationStack(path: router.pathBinding(for: .ammo)) {
                 AmmoView()
                     .navigationDestination(for: AppRoute.self) { route in
-                        RouteDestination(route)
+                        RouteDestination(route: route)
                     }
             }
             .tabItem { Label("Ammo", systemImage: "circle.grid.cross") }
             .tag(AppTab.ammo)
 
             NavigationStack(path: router.pathBinding(for: .sessions)) {
-                // whatever your sessions list/root is (or DashboardView if sessions are embedded)
-                AnalyticsDashboardView()
+                LiveSessionView()
                     .navigationDestination(for: AppRoute.self) { route in
-                        RouteDestination(route)
+                        RouteDestination(route: route)
                     }
             }
             .tabItem { Label("Sessions", systemImage: "timer") }
@@ -47,7 +45,7 @@ struct RootTabView: View {
             NavigationStack(path: router.pathBinding(for: .settings)) {
                 SettingsView()
                     .navigationDestination(for: AppRoute.self) { route in
-                        RouteDestination(route)
+                        RouteDestination(route: route)
                     }
             }
             .tabItem { Label("Settings", systemImage: "gearshape") }

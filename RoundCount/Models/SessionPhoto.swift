@@ -2,27 +2,57 @@
 //  SessionPhoto.swift
 //  RoundCount
 //
-//  Created by Alex Schaffer on 1/21/26.
+//  V1: Photos attach to a FirearmRun (target / malfunction)
 //
 
 import Foundation
 import SwiftData
-import Combine
+
+enum SessionPhotoTag: String, Codable, CaseIterable, Identifiable {
+    case target
+    case malfunction
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .target: return "Target"
+        case .malfunction: return "Malfunction"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .target: return "target"
+        case .malfunction: return "exclamationmark.triangle.fill"
+        }
+    }
+}
 
 @Model
 final class SessionPhoto {
-    var id: UUID
-    var filePath: String
-    var createdAt: Date
+    var id: UUID = UUID()
+    var createdAt: Date = Date()
 
-    @Relationship(deleteRule: .nullify) var session: SessionV2?
-    @Relationship(deleteRule: .nullify) var run: FirearmRun?
+    // Stored as String so SwiftData stays happy
+    var tagRaw: String = SessionPhotoTag.target.rawValue
 
-    init(filePath: String, session: SessionV2? = nil, run: FirearmRun? = nil, createdAt: Date = Date()) {
-        self.id = UUID()
-        self.filePath = filePath
-        self.createdAt = createdAt
-        self.session = session
+    // Store image bytes (JPEG). externalStorage avoids bloating the main store file.
+    @Attribute(.externalStorage) var imageData: Data
+
+    // ✅ Ownership: photo belongs to exactly one run
+    @Relationship(inverse: \FirearmRun.photos)
+    var run: FirearmRun
+
+    init(run: FirearmRun, imageData: Data, tag: SessionPhotoTag) {
         self.run = run
+        self.imageData = imageData
+        self.tagRaw = tag.rawValue
+        self.createdAt = Date()
+    }
+
+    var tag: SessionPhotoTag {
+        get { SessionPhotoTag(rawValue: tagRaw) ?? .target }
+        set { tagRaw = newValue.rawValue }
     }
 }

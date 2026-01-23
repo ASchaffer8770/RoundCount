@@ -51,7 +51,6 @@ struct AmmoView: View {
     }
 
     var body: some View {
-        NavigationStack {
             List {
                 // MARK: Summary (parent card)
                 Section {
@@ -200,7 +199,6 @@ struct AmmoView: View {
             .onChange(of: dashRange) { _, _ in recomputeDashboard() }
             .onChange(of: ammo.count) { _, _ in recomputeDashboard() }
             .onChange(of: runs.count) { _, _ in recomputeDashboard() }
-        }
     }
 
     // MARK: - Summary pill (inner card)

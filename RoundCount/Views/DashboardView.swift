@@ -11,6 +11,7 @@ import SwiftData
 struct DashboardView: View {
     @EnvironmentObject private var entitlements: Entitlements
     @Environment(\.colorScheme) private var scheme
+    @EnvironmentObject private var router: AppRouter
 
     @State private var showPaywall = false
     @State private var paywallFeature: Feature? = nil
@@ -20,9 +21,6 @@ struct DashboardView: View {
 
     // ✅ Dashboard range control (default: 30 days)
     @State private var range: DashboardDateRange = .days30
-
-    // ✅ Button-driven nav trigger (Analytics)
-    @State private var showAnalyticsRoute = false
 
     @Query(sort: \Firearm.createdAt, order: .reverse) private var firearms: [Firearm]
     @Query(sort: \SessionV2.startedAt, order: .reverse) private var liveSessions: [SessionV2]
@@ -81,10 +79,6 @@ struct DashboardView: View {
         }
         .background(Brand.pageBackground(scheme))
         .navigationTitle("RoundCount")
-        
-        .navigationDestination(isPresented: $showAnalyticsRoute) {
-            AnalyticsDashboardView()
-        }
 
         // Sheets
         .sheet(isPresented: $showAddFirearm) { AddFirearmView() }
@@ -242,6 +236,8 @@ struct DashboardView: View {
                     .foregroundStyle(.secondary)
             }
             .padding(14)
+            // ✅ makes the whole card tappable, not just text
+            .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.l, style: .continuous))
         }
         .buttonStyle(.plain)
         .accentCard(radius: Brand.Radius.l)
@@ -338,7 +334,7 @@ struct DashboardView: View {
 
     private func gateOpenAnalytics() {
         if entitlements.isPro {
-            showAnalyticsRoute = true
+            router.dashboardPath.append(AppRoute.analyticsDashboard)
             return
         }
 

@@ -19,7 +19,6 @@ struct AddSetupView: View {
     @State private var notes: String = ""
 
     var body: some View {
-        NavigationStack {
             Form {
                 Section("Setup") {
                     TextField("Name (e.g., Carry / USPSA)", text: $name)
@@ -39,7 +38,6 @@ struct AddSetupView: View {
                         .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-        }
     }
 
     private func save() {

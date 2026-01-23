@@ -25,8 +25,13 @@ struct SessionDetailView: View {
         sessions.first(where: { $0.id == sessionID })
     }
 
+    /// Photos that belong to any run in this session.
     private var sessionPhotos: [SessionPhoto] {
-        allPhotos.filter { $0.session?.id == sessionID }
+        guard let s = session else { return [] }
+        let runIDs = Set(s.runs.map(\.id))
+        return allPhotos
+            .filter { runIDs.contains($0.run.id) }
+            .sorted(by: { $0.createdAt > $1.createdAt })
     }
 
     private var sessionRuns: [FirearmRun] {
@@ -59,14 +64,12 @@ struct SessionDetailView: View {
             }
         }
         .sheet(item: $selectedPhoto) { p in
-            NavigationStack {
                 PhotoPreview(photo: p)
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
                             Button("Done") { selectedPhoto = nil }
                         }
                     }
-            }
         }
     }
 
@@ -163,7 +166,6 @@ struct SessionDetailView: View {
     // MARK: - Helpers
 
     private func durationSeconds(session s: SessionV2) -> Int {
-        // If your SessionV2 already computes durationSeconds, use that.
         if let end = s.endedAt {
             return max(0, Int(end.timeIntervalSince(s.startedAt)))
         }
@@ -209,7 +211,7 @@ private struct PhotoThumb: View {
 
     var body: some View {
         Group {
-            if let img = PhotoStore.loadImage(relativePath: photo.filePath) {
+            if let img = UIImage(data: photo.imageData) {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFill()
@@ -235,7 +237,7 @@ private struct PhotoPreview: View {
 
     var body: some View {
         VStack {
-            if let img = PhotoStore.loadImage(relativePath: photo.filePath) {
+            if let img = UIImage(data: photo.imageData) {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFit()

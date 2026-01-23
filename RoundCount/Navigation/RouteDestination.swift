@@ -1,50 +1,59 @@
-//
-//  RouteDestination.swift
-//  RoundCount
-//
-
 import SwiftUI
 import SwiftData
 
-@ViewBuilder
-func RouteDestination(_ route: AppRoute) -> some View {
-    switch route {
-
-    // Tab root handoffs
-    case .firearmsIndex:
-        FirearmsView()
-
-    case .ammoIndex:
-        AmmoView()
-
-    // Screens
-    case .analyticsDashboard:
-        AnalyticsDashboardView()
-
-    // Details
-    case .firearmDetail(let pid):
-        FirearmDetailRoute(pid: pid)
-
-    case .sessionDetail(let sessionID):
-        SessionDetailView(sessionID: sessionID)
-    }
-}
-
-// MARK: - Firearm Detail (SwiftData resolution)
-
-private struct FirearmDetailRoute: View {
-    let pid: PersistentIdentifier
+struct RouteDestination: View {
+    let route: AppRoute
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var router: AppRouter
 
     var body: some View {
-        if let firearm = modelContext.model(for: pid) as? Firearm {
-            FirearmDetailView(firearm: firearm)
-        } else {
-            ContentUnavailableView(
-                "Firearm not found",
-                systemImage: "scope",
-                description: Text("This firearm may have been deleted.")
-            )
+        switch route {
+
+        // MARK: - Tab handoffs
+        case .firearmsIndex:
+            // Prefer switching tabs instead of stacking FirearmsView on Dashboard stack
+            tabHandoff(.firearms)
+
+        case .ammoIndex:
+            tabHandoff(.ammo)
+
+        // MARK: - Screens
+        case .analyticsDashboard:
+            AnalyticsDashboardView()
+
+        // MARK: - Details
+        case .firearmDetail(let pid):
+            if let firearm = modelContext.model(for: pid) as? Firearm {
+                FirearmDetailView(firearm: firearm)
+            } else {
+                missing("Firearm not found")
+            }
+
+        case .sessionDetail(let sessionID):
+            // IMPORTANT: call your session detail screen using the ID
+            // (this fixes your earlier “have session:, expected sessionID:” error)
+            SessionDetailView(sessionID: sessionID)
         }
+    }
+
+    // MARK: - Helpers
+
+    @ViewBuilder
+    private func tabHandoff(_ tab: AppTab) -> some View {
+        // Switch tab and pop that tab to root so the user lands cleanly.
+        Color.clear
+            .onAppear {
+                router.selectedTab = tab
+                router.popToRoot(of: tab)
+            }
+    }
+
+    private func missing(_ title: String) -> some View {
+        ContentUnavailableView(
+            title,
+            systemImage: "exclamationmark.triangle",
+            description: Text("This item may have been deleted or could not be loaded.")
+        )
+        .padding()
     }
 }
