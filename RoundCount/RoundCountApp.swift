@@ -11,14 +11,12 @@ import SwiftData
 @main
 struct RoundCountApp: App {
     @StateObject private var entitlements = Entitlements()
-    @StateObject private var tabRouter = AppTabRouter()
 
     var body: some Scene {
         WindowGroup {
             RootTabView()
                 .tint(Brand.accent)
                 .environmentObject(entitlements)
-                .environmentObject(tabRouter)
         }
         .modelContainer(for: [
             Firearm.self,

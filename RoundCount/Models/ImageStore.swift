@@ -7,22 +7,25 @@
 
 import Foundation
 import UIKit
+import Combine
 
 enum ImageStore {
-    static func saveJPEG(_ image: UIImage, quality: CGFloat = 0.82) throws -> String {
-        let data = image.jpegData(compressionQuality: quality) ?? Data()
-        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let url = dir.appendingPathComponent("session_photo_\(UUID().uuidString).jpg")
-        try data.write(to: url, options: [.atomic])
-        return url.path
+    /// Legacy convenience — prefer PhotoStore directly for session/run images.
+    static func saveJPEGForSession(_ image: UIImage, sessionId: UUID, photoId: UUID, quality: CGFloat = 0.82) throws -> String {
+        guard let data = image.jpegData(compressionQuality: quality) else {
+            throw NSError(domain: "ImageStore", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unable to encode JPEG"])
+        }
+        return try PhotoStore.saveJPEGForSession(sessionId: sessionId, photoId: photoId, jpegData: data)
     }
 
-    static func loadImage(path: String) -> UIImage? {
-        UIImage(contentsOfFile: path)
+    static func loadImage(pathOrRelative: String) -> UIImage? {
+        PhotoStore.loadImage(relativePath: pathOrRelative) // supports legacy absolute + new relative
     }
 
-    static func delete(path: String) {
-        try? FileManager.default.removeItem(atPath: path)
+    static func delete(pathOrRelative: String) {
+        if let abs = PhotoStore.absolutePath(for: pathOrRelative) {
+            try? FileManager.default.removeItem(atPath: abs)
+        }
     }
 }
 

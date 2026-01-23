@@ -86,6 +86,33 @@ struct SettingsView: View {
                             value: buildNumber,
                             systemImage: "hammer"
                         )
+                        Section {
+                            settingsCard(title: "About") {
+
+                                NavigationLink {
+                                    AboutView()
+                                } label: {
+                                    settingsRow(
+                                        title: "About RoundCount",
+                                        value: "",
+                                        systemImage: "info.circle"
+                                    )
+                                }
+                                .buttonStyle(.plain)
+
+                                settingsRow(
+                                    title: "Version",
+                                    value: appVersion,
+                                    systemImage: "number"
+                                )
+
+                                settingsRow(
+                                    title: "Build",
+                                    value: buildNumber,
+                                    systemImage: "hammer"
+                                )
+                            }
+                        }
                     }
                 }
                 .listRowSeparator(.hidden)

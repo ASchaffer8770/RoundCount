@@ -14,22 +14,20 @@ struct FirearmDetailView: View {
     // ✅ Runs filtered by firearm (we derive SessionV2 list from run.session)
     @Query private var runsForFirearm: [FirearmRun]
 
-    // ✅ Magazines filtered by firearm (avoids needing firearm.magazines property)
+    // ✅ Magazines filtered by firearm
     @Query private var magazinesForFirearm: [FirearmMagazine]
 
     @EnvironmentObject private var entitlements: Entitlements
-    @EnvironmentObject private var tabRouter: AppTabRouter
 
     @State private var showEdit = false
     @State private var showAddSetup = false
-    @State private var showMagazines = false
+    @State private var showLiveSession = false
 
     // Default = last 30 days
-    @State private var range: DashboardDateRange = .days30
+    @State private var range: FirearmDetailDateRange = .days30
 
     init(firearm: Firearm) {
         self.firearm = firearm
-
         let firearmId = firearm.id
 
         self._runsForFirearm = Query(
@@ -51,14 +49,13 @@ struct FirearmDetailView: View {
     }
 
     private var magsCount: Int { magazinesForFirearm.count }
-
     private var rangeStart: Date? { range.startDate(relativeToNow: Date()) }
 
     /// Unique SessionV2s that include this firearm (via FirearmRun.session)
     private var liveSessionsForFirearm: [SessionV2] {
         var map: [UUID: SessionV2] = [:]
         for run in runsForFirearm {
-            let s = run.session // ✅ non-optional
+            let s = run.session
             map[s.id] = s
         }
 
@@ -96,19 +93,17 @@ struct FirearmDetailView: View {
                 Button { showEdit = true } label: { Image(systemName: "pencil") }
             }
         }
-        .navigationDestination(isPresented: $showMagazines) {
-            FirearmMagazinesEditorView(firearm: firearm)
-        }
 
-        // ✅ IMPORTANT:
-        // Do NOT declare navigationDestination(for:) here for sessions.
-        // The session destination should be declared once, closest to the root NavigationStack.
-        // This view only emits NavigationLink(value: UUID).
+        // ✅ Sheets only (no programmatic navigation destinations in this detail screen)
         .sheet(isPresented: $showEdit) {
             AddFirearmView(editingFirearm: firearm)
         }
         .sheet(isPresented: $showAddSetup) {
             AddSetupView(firearm: firearm)
+        }
+        .sheet(isPresented: $showLiveSession) {
+            // ✅ start a live session already preselected to this firearm
+            LiveSessionView(preselectedFirearmID: firearm.id)
         }
     }
 
@@ -146,7 +141,7 @@ struct FirearmDetailView: View {
                 .font(.headline)
 
             Button {
-                tabRouter.startLive(for: firearm.id)
+                showLiveSession = true
             } label: {
                 HStack {
                     Image(systemName: "timer")
@@ -184,7 +179,7 @@ struct FirearmDetailView: View {
                 .font(.headline)
 
             Picker("Range", selection: $range) {
-                ForEach(DashboardDateRange.allCases) { r in
+                ForEach(FirearmDetailDateRange.allCases) { r in
                     Text(r.title).tag(r)
                 }
             }
@@ -204,8 +199,9 @@ struct FirearmDetailView: View {
             Text("Gear & Setups")
                 .font(.headline)
 
-            Button {
-                showMagazines = true
+            // ✅ Use a direct NavigationLink (no showMagazines + no .navigationDestination(isPresented:))
+            NavigationLink {
+                FirearmMagazinesEditorView(firearm: firearm)
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "magazine.fill")
@@ -320,7 +316,7 @@ struct FirearmDetailView: View {
         let malfs = s.totalMalfunctions
         let minutes = max(1, s.durationSeconds / 60)
 
-        return NavigationLink(value: s.id) {
+        return NavigationLink(value: AppRoute.sessionDetail(s.id)) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("\(rounds) rounds")
@@ -377,7 +373,7 @@ struct FirearmDetailView: View {
 
 // MARK: - Date Range (shared)
 
-private enum DashboardDateRange: String, CaseIterable, Identifiable {
+private enum FirearmDetailDateRange: String, CaseIterable, Identifiable {
     case week
     case days30
     case days90

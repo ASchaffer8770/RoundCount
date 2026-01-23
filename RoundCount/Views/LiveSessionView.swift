@@ -276,9 +276,14 @@ final class LiveSessionVM: ObservableObject {
 // MARK: - View
 
 struct LiveSessionView: View {
+    let preselectedFirearmID: UUID?
+
+    init(preselectedFirearmID: UUID? = nil) {
+        self.preselectedFirearmID = preselectedFirearmID
+    }
+    
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var entitlements: Entitlements
-    @EnvironmentObject private var tabRouter: AppTabRouter
     @Query(sort: \Firearm.createdAt, order: .reverse) private var firearms: [Firearm]
     @Query(sort: \AmmoProduct.createdAt, order: .reverse) private var ammoLibrary: [AmmoProduct]
 
@@ -297,12 +302,9 @@ struct LiveSessionView: View {
         case sessionNotes
     }
 
-    private func consumePendingLiveStartIfNeeded() {
-        guard let firearmID = tabRouter.pendingLiveFirearmID else { return }
-        guard let firearm = firearms.first(where: { $0.id == firearmID }) else {
-            tabRouter.clearPendingLiveRequest()
-            return
-        }
+    private func consumePreselectedStartIfNeeded() {
+        guard let firearmID = preselectedFirearmID else { return }
+        guard let firearm = firearms.first(where: { $0.id == firearmID }) else { return }
 
         if vm.state == .idle || vm.session == nil {
             vm.startSession(modelContext: modelContext)
@@ -312,8 +314,6 @@ struct LiveSessionView: View {
             vm.endActiveRunIfNeeded(modelContext: modelContext)
             vm.startNewRun(modelContext: modelContext, firearm: firearm)
         }
-
-        tabRouter.clearPendingLiveRequest()
     }
 
     @State private var showFirearmPicker = false
@@ -337,38 +337,49 @@ struct LiveSessionView: View {
 
     private func addPhoto(_ image: UIImage) {
         guard let s = vm.session else { return }
-        guard let _ = vm.activeRun else {
-            // User feedback if they try to add without a run
+        guard vm.activeRun != nil else {
             print("Attempted to add photo without an active run")
             haptic(.light)
             return
         }
 
-        do {
-            let path = try ImageStore.saveJPEG(image, quality: 0.82)
-            let photo = SessionPhoto(filePath: path, session: s, run: vm.activeRun)
-            modelContext.insert(photo)
-            try? modelContext.save()
-            haptic(.medium)
-        } catch {
-            haptic(.light)
-        }
-    }
-
-    private func deletePhoto(_ p: SessionPhoto) {
-        ImageStore.delete(path: p.filePath)
-        modelContext.delete(p)
-        try? modelContext.save()
-        haptic(.light)
-    }
-
-    private func handlePickedPhotos(_ items: [PhotosPickerItem]) {
-        guard !items.isEmpty else { return }
-        guard vm.activeRun != nil else {
-            print("PhotosPicker: no active run; ignoring selection")
+        guard let jpegData = image.jpegData(compressionQuality: 0.82) else {
             haptic(.light)
             return
         }
+
+        do {
+            // Create model first so we have a stable UUID for filename
+            let photo = SessionPhoto(filePath: "", session: s, run: vm.activeRun)
+
+            // Save to Sessions/<sessionId>/<photoId>.jpg and store RELATIVE path
+            let relative = try PhotoStore.saveJPEGForSession(
+                sessionId: s.id,
+                photoId: photo.id,
+                jpegData: jpegData
+            )
+            photo.filePath = relative
+
+            modelContext.insert(photo)
+            try modelContext.save()
+            haptic(.medium)
+        } catch {
+            print("addPhoto failed:", error)
+            haptic(.light)
+        }
+    }
+    
+    private func handlePickedPhotos(_ items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
+
+        // Require an active run (your intended UX)
+        guard vm.activeRun != nil else {
+            print("PhotosPicker: no active run; ignoring selection")
+            haptic(.light)
+            pickedItems = []
+            return
+        }
+
         focusedField = nil
 
         Task {
@@ -378,8 +389,17 @@ struct LiveSessionView: View {
                     await MainActor.run { addPhoto(image) }
                 }
             }
+
             await MainActor.run { pickedItems = [] }
         }
+    }
+
+
+    private func deletePhoto(_ p: SessionPhoto) {
+        PhotoStore.deletePhoto(relativePath: p.filePath)
+        modelContext.delete(p)
+        try? modelContext.save()
+        haptic(.light)
     }
 
     private var photosSection: some View {
@@ -568,8 +588,8 @@ struct LiveSessionView: View {
                 )
             }
 
-            .onAppear { consumePendingLiveStartIfNeeded() }
-            .onChange(of: tabRouter.pendingLiveFirearmID) { _, _ in consumePendingLiveStartIfNeeded() }
+            .onAppear { consumePreselectedStartIfNeeded() }
+            .onChange(of: firearms.count) { _, _ in consumePreselectedStartIfNeeded() } // helps if firearms load slightly later
             .onAppear { syncIdleTimer() }
             .onChange(of: vm.state) { _, _ in syncIdleTimer() }
         }
@@ -1516,7 +1536,7 @@ private struct PhotoThumb: View {
 
     var body: some View {
         Group {
-            if let img = ImageStore.loadImage(path: photo.filePath) {
+            if let img = PhotoStore.loadImage(relativePath: photo.filePath) {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFill()
@@ -1542,7 +1562,7 @@ private struct PhotoPreview: View {
 
     var body: some View {
         VStack {
-            if let img = ImageStore.loadImage(path: photo.filePath) {
+            if let img = PhotoStore.loadImage(relativePath: photo.filePath) {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFit()
@@ -1599,9 +1619,4 @@ private struct CameraCaptureView: UIViewControllerRepresentable {
             onComplete(image)
         }
     }
-}
-
-
-#Preview {
-    LiveSessionView().environmentObject(Entitlements())
 }

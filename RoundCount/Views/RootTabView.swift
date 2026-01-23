@@ -1,36 +1,58 @@
+// Views/RootTabView.swift
 import SwiftUI
 
 struct RootTabView: View {
-    @EnvironmentObject private var tabRouter: AppTabRouter
+    @StateObject private var router = AppRouter()
 
     var body: some View {
-        NavigationStack {
-            TabView(selection: $tabRouter.selectedTab) {
+        TabView(selection: $router.selectedTab) {
+
+            NavigationStack(path: router.pathBinding(for: .dashboard)) {
                 DashboardView()
-                    .tabItem { Label("Dashboard", systemImage: "gauge") }
-                    .tag(AppTab.dashboard)
+                    .navigationDestination(for: AppRoute.self) { route in
+                        RouteDestination(route)
+                    }
+            }
+            .tabItem { Label("Dashboard", systemImage: "square.grid.2x2") }
+            .tag(AppTab.dashboard)
 
+            NavigationStack(path: router.pathBinding(for: .firearms)) {
                 FirearmsView()
-                    .tabItem { Label("Firearms", systemImage: "scope") }
-                    .tag(AppTab.firearms)
+                    .navigationDestination(for: AppRoute.self) { route in
+                        RouteDestination(route)
+                    }
+            }
+            .tabItem { Label("Firearms", systemImage: "scope") }
+            .tag(AppTab.firearms)
 
+            NavigationStack(path: router.pathBinding(for: .ammo)) {
                 AmmoView()
-                    .tabItem { Label("Ammo", systemImage: "tray.full") }
-                    .tag(AppTab.ammo)
+                    .navigationDestination(for: AppRoute.self) { route in
+                        RouteDestination(route)
+                    }
+            }
+            .tabItem { Label("Ammo", systemImage: "circle.grid.cross") }
+            .tag(AppTab.ammo)
 
-                LiveSessionView()
-                    .tabItem { Label("Live", systemImage: "timer") }
-                    .tag(AppTab.live)
+            NavigationStack(path: router.pathBinding(for: .sessions)) {
+                // whatever your sessions list/root is (or DashboardView if sessions are embedded)
+                AnalyticsDashboardView()
+                    .navigationDestination(for: AppRoute.self) { route in
+                        RouteDestination(route)
+                    }
+            }
+            .tabItem { Label("Sessions", systemImage: "timer") }
+            .tag(AppTab.sessions)
 
+            NavigationStack(path: router.pathBinding(for: .settings)) {
                 SettingsView()
-                    .tabItem { Label("Settings", systemImage: "gearshape") }
-                    .tag(AppTab.settings)
+                    .navigationDestination(for: AppRoute.self) { route in
+                        RouteDestination(route)
+                    }
             }
-
-            // ✅ Single, global destination for SessionV2 details
-            .navigationDestination(for: UUID.self) { sessionID in
-                SessionDetailView(sessionID: sessionID)
-            }
+            .tabItem { Label("Settings", systemImage: "gearshape") }
+            .tag(AppTab.settings)
         }
+        .environmentObject(router)
     }
 }

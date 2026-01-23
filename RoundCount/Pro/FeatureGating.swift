@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Combine
 
 enum Feature: String, CaseIterable, Identifiable {
     case unlimitedFirearms

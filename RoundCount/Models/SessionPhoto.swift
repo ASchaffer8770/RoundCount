@@ -7,18 +7,16 @@
 
 import Foundation
 import SwiftData
+import Combine
 
 @Model
 final class SessionPhoto {
-    // Give it a real stable ID for SwiftUI
-    @Attribute(.unique) var id: UUID
-
+    var id: UUID
     var filePath: String
     var createdAt: Date
 
-    // Relationships (adjust types to your real model names)
-    var session: SessionV2?
-    var run: FirearmRun?
+    @Relationship(deleteRule: .nullify) var session: SessionV2?
+    @Relationship(deleteRule: .nullify) var run: FirearmRun?
 
     init(filePath: String, session: SessionV2? = nil, run: FirearmRun? = nil, createdAt: Date = Date()) {
         self.id = UUID()

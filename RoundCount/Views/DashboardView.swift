@@ -16,24 +16,33 @@ struct DashboardView: View {
     @State private var paywallFeature: Feature? = nil
     @State private var gateMessage: String? = nil
     @State private var showGateAlert = false
-    @State private var showAnalytics = false
     @State private var showAddFirearm = false
 
     // ✅ Dashboard range control (default: 30 days)
     @State private var range: DashboardDateRange = .days30
 
+    // ✅ Button-driven nav trigger (Analytics)
+    @State private var showAnalyticsRoute = false
+
     @Query(sort: \Firearm.createdAt, order: .reverse) private var firearms: [Firearm]
     @Query(sort: \SessionV2.startedAt, order: .reverse) private var liveSessions: [SessionV2]
+
+    // ✅ Source of truth for total rounds (fixes dashboard totals)
+    @Query(sort: \FirearmRun.startedAt, order: .reverse) private var allRuns: [FirearmRun]
 
     // MARK: - Derived
 
     private var totalFirearms: Int { firearms.count }
+    private var rangeStart: Date? { range.startDate }
 
-    private var totalRounds: Int {
-        firearms.reduce(0) { $0 + $1.totalRounds }
+    private var filteredRuns: [FirearmRun] {
+        guard let start = rangeStart else { return allRuns }
+        return allRuns.filter { $0.startedAt >= start }
     }
 
-    private var rangeStart: Date? { range.startDate(relativeToNow: Date()) }
+    private var totalRounds: Int {
+        filteredRuns.reduce(0) { $0 + $1.rounds }
+    }
 
     private var filteredLiveSessions: [SessionV2] {
         guard let start = rangeStart else { return liveSessions }
@@ -58,33 +67,36 @@ struct DashboardView: View {
     // MARK: - Body
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: Brand.Spacing.l) {
-                    header
-                    dateRangePicker
-                    statsGrid
-                    quickActions
-                    analyticsButton
-                    recentActivity
-                    Spacer(minLength: 24)
-                }
-                .padding(Brand.screenPadding)
+        ScrollView {
+            VStack(alignment: .leading, spacing: Brand.Spacing.l) {
+                header
+                dateRangePicker
+                statsGrid
+                quickActions
+                analyticsButton
+                recentActivity
+                Spacer(minLength: 24)
             }
-            .background(Brand.pageBackground(scheme))
-            .navigationTitle("RoundCount")
-            .sheet(isPresented: $showAddFirearm) { AddFirearmView() }
-            .sheet(isPresented: $showAnalytics) { NavigationStack { AnalyticsDashboardView() } }
-            .sheet(isPresented: $showPaywall) {
-                PaywallView(sourceFeature: paywallFeature)
-                    .environmentObject(entitlements)
-            }
-            .alert("Upgrade to Pro", isPresented: $showGateAlert) {
-                Button("Not now", role: .cancel) {}
-                Button("See Pro") { showPaywall = true }
-            } message: {
-                Text(gateMessage ?? "This feature requires RoundCount Pro.")
-            }
+            .padding(Brand.screenPadding)
+        }
+        .background(Brand.pageBackground(scheme))
+        .navigationTitle("RoundCount")
+        
+        .navigationDestination(isPresented: $showAnalyticsRoute) {
+            AnalyticsDashboardView()
+        }
+
+        // Sheets
+        .sheet(isPresented: $showAddFirearm) { AddFirearmView() }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(sourceFeature: paywallFeature)
+                .environmentObject(entitlements)
+        }
+        .alert("Upgrade to Pro", isPresented: $showGateAlert) {
+            Button("Not now", role: .cancel) {}
+            Button("See Pro") { showPaywall = true }
+        } message: {
+            Text(gateMessage ?? "This feature requires RoundCount Pro.")
         }
     }
 
@@ -96,9 +108,7 @@ struct DashboardView: View {
                 .font(.title.bold())
 
             if let s = lastActivitySession {
-                NavigationLink {
-                    SessionDetailView(sessionID: s.id)
-                } label: {
+                NavigationLink(value: AppRoute.sessionDetail(s.id)) {
                     Text("Last activity: \(lastActivityDateText)")
                         .font(.subheadline)
                         .foregroundStyle(Brand.accent.opacity(scheme == .dark ? 0.85 : 0.75))
@@ -118,14 +128,14 @@ struct DashboardView: View {
                 .font(Brand.Typography.section)
 
             Picker("Date range", selection: $range) {
-                ForEach(DashboardDateRange.allCases) { r in
-                    Text(r.title).tag(r)
+                ForEach(DashboardDateRange.allCases, id: \.self) { r in
+                    Text(r.label).tag(r)
                 }
             }
             .pickerStyle(.segmented)
         }
         .padding(14)
-        .accentCard(radius: Brand.Radius.l) // ✅ parent card gets accent
+        .accentCard(radius: Brand.Radius.l)
     }
 
     private var statsGrid: some View {
@@ -138,18 +148,18 @@ struct DashboardView: View {
                 GridItem(.flexible(), spacing: 12)
             ], spacing: 12) {
 
-                NavigationLink { FirearmsView() } label: {
+                NavigationLink(value: AppRoute.firearmsIndex) {
                     StatCard(title: "Firearms", value: "\(totalFirearms)", systemImage: "scope")
                 }
                 .buttonStyle(.plain)
 
-                NavigationLink { AmmoView() } label: {
+                NavigationLink(value: AppRoute.ammoIndex) {
                     StatCard(title: "Total rounds", value: "\(totalRounds)", systemImage: "target")
                 }
                 .buttonStyle(.plain)
 
                 if let mf = mostUsedFirearm {
-                    NavigationLink { FirearmDetailView(firearm: mf) } label: {
+                    NavigationLink(value: AppRoute.firearmDetail(mf.persistentModelID)) {
                         StatCard(title: "Most used", value: mf.displayName, systemImage: "flame")
                     }
                     .buttonStyle(.plain)
@@ -158,7 +168,7 @@ struct DashboardView: View {
                 }
 
                 if let s = lastActivitySession {
-                    NavigationLink { SessionDetailView(sessionID: s.id) } label: {
+                    NavigationLink(value: AppRoute.sessionDetail(s.id)) {
                         StatCard(
                             title: "Last activity",
                             value: s.startedAt.formatted(date: .abbreviated, time: .omitted),
@@ -172,7 +182,7 @@ struct DashboardView: View {
             }
         }
         .padding(14)
-        .accentCard(radius: Brand.Radius.l) // ✅ parent card gets accent
+        .accentCard(radius: Brand.Radius.l)
     }
 
     private var quickActions: some View {
@@ -199,14 +209,14 @@ struct DashboardView: View {
                     }
                 }
 
-                NavigationLink { FirearmsView() } label: {
+                NavigationLink(value: AppRoute.firearmsIndex) {
                     SquareActionTile(title: "View Firearms", systemImage: "list.bullet")
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(14)
-        .accentCard(radius: Brand.Radius.l) // ✅ parent card gets accent
+        .accentCard(radius: Brand.Radius.l)
     }
 
     private var analyticsButton: some View {
@@ -234,7 +244,7 @@ struct DashboardView: View {
             .padding(14)
         }
         .buttonStyle(.plain)
-        .accentCard(radius: Brand.Radius.l) // ✅ parent card gets accent
+        .accentCard(radius: Brand.Radius.l)
     }
 
     private var recentActivity: some View {
@@ -259,13 +269,11 @@ struct DashboardView: View {
             }
         }
         .padding(14)
-        .accentCard(radius: Brand.Radius.l) // ✅ parent card gets accent
+        .accentCard(radius: Brand.Radius.l)
     }
 
     private func liveActivityRow(row: LiveSessionRowVM) -> some View {
-        NavigationLink {
-            SessionDetailView(sessionID: row.id)
-        } label: {
+        NavigationLink(value: AppRoute.sessionDetail(row.id)) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text(row.title)
@@ -311,7 +319,7 @@ struct DashboardView: View {
             .padding(12)
         }
         .buttonStyle(.plain)
-        .surfaceCard(radius: Brand.Radius.m) // ✅ inner rows stay neutral
+        .surfaceCard(radius: Brand.Radius.m)
     }
 
     // MARK: - Gating
@@ -330,7 +338,7 @@ struct DashboardView: View {
 
     private func gateOpenAnalytics() {
         if entitlements.isPro {
-            showAnalytics = true
+            showAnalyticsRoute = true
             return
         }
 
@@ -388,45 +396,6 @@ private struct LiveSessionRowVM: Identifiable {
     }
 }
 
-// MARK: - Date Range
-
-private enum DashboardDateRange: String, CaseIterable, Identifiable {
-    case week
-    case days30
-    case days90
-    case ytd
-    case all
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .week: return "1W"
-        case .days30: return "30D"
-        case .days90: return "90D"
-        case .ytd: return "YTD"
-        case .all: return "All"
-        }
-    }
-
-    func startDate(relativeToNow now: Date) -> Date? {
-        let cal = Calendar.current
-        switch self {
-        case .week:
-            return cal.date(byAdding: .day, value: -7, to: now)
-        case .days30:
-            return cal.date(byAdding: .day, value: -30, to: now)
-        case .days90:
-            return cal.date(byAdding: .day, value: -90, to: now)
-        case .ytd:
-            let year = cal.component(.year, from: now)
-            return cal.date(from: DateComponents(year: year, month: 1, day: 1))
-        case .all:
-            return nil
-        }
-    }
-}
-
 // MARK: - Buttons + Cards
 
 private struct SquareActionButton: View {
@@ -474,7 +443,7 @@ private struct SquareActionTile: View {
         .aspectRatio(1.2, contentMode: .fit)
         .padding(.vertical, 10)
         .padding(.horizontal, 8)
-        .surfaceCard(radius: Brand.Radius.l) // ✅ inner tile stays neutral
+        .surfaceCard(radius: Brand.Radius.l)
         .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.l, style: .continuous))
     }
 }
@@ -503,6 +472,6 @@ private struct StatCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
-        .surfaceCard(radius: Brand.Radius.m) // ✅ inner card stays neutral
+        .surfaceCard(radius: Brand.Radius.m)
     }
 }

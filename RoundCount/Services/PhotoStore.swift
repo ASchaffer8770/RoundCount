@@ -9,6 +9,7 @@ import Foundation
 import UIKit
 
 enum PhotoStore {
+
     static func saveJPEGForSession(sessionId: UUID, photoId: UUID, jpegData: Data) throws -> String {
         let dir = try sessionDirectory(sessionId: sessionId)
         let filename = "\(photoId.uuidString).jpg"
@@ -16,13 +17,34 @@ enum PhotoStore {
 
         try jpegData.write(to: fileURL, options: [.atomic])
 
-        // Store a relative path, so it’s portable if Apple changes the container path
+        // ✅ Relative path (portable)
         return "Sessions/\(sessionId.uuidString)/\(filename)"
     }
 
     static func loadImage(relativePath: String) -> UIImage? {
-        guard let url = absoluteURL(relativePath: relativePath) else { return nil }
+        let trimmed = relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        // ✅ Legacy absolute path support
+        if trimmed.hasPrefix("/") {
+            return UIImage(contentsOfFile: trimmed)
+        }
+
+        guard let url = absoluteURL(relativePath: trimmed) else { return nil }
         return UIImage(contentsOfFile: url.path)
+    }
+
+    static func absolutePath(for relativePath: String) -> String? {
+        let trimmed = relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.hasPrefix("/") { return trimmed }
+        guard let url = absoluteURL(relativePath: trimmed) else { return nil }
+        return url.path
+    }
+
+    static func deletePhoto(relativePath: String) {
+        guard let abs = absolutePath(for: relativePath) else { return }
+        try? FileManager.default.removeItem(atPath: abs)
     }
 
     static func deleteAllPhotosForSession(sessionId: UUID) {
@@ -43,7 +65,11 @@ enum PhotoStore {
             .appendingPathComponent(sessionId.uuidString, isDirectory: true)
 
         if !FileManager.default.fileExists(atPath: dir.path) {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(
+                at: dir,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
         }
         return dir
     }
@@ -55,7 +81,11 @@ enum PhotoStore {
 
     private static func documentsDirectory() throws -> URL {
         guard let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            throw NSError(domain: "PhotoStore", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing documents directory"])
+            throw NSError(
+                domain: "PhotoStore",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Missing documents directory"]
+            )
         }
         return url
     }

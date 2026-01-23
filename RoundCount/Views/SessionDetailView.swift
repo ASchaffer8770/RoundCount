@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct SessionDetailView: View {
     let sessionID: UUID
@@ -208,7 +209,7 @@ private struct PhotoThumb: View {
 
     var body: some View {
         Group {
-            if let img = ImageStore.loadImage(path: photo.filePath) {
+            if let img = PhotoStore.loadImage(relativePath: photo.filePath) {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFill()
@@ -234,7 +235,7 @@ private struct PhotoPreview: View {
 
     var body: some View {
         VStack {
-            if let img = ImageStore.loadImage(path: photo.filePath) {
+            if let img = PhotoStore.loadImage(relativePath: photo.filePath) {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFit()
