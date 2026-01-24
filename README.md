@@ -1,6 +1,6 @@
 # RoundCount 🎯
 
-**RoundCount** is a local-first iOS app for tracking firearms, range sessions, ammo usage, and gear setups — built for **real-world shooters** who want clean data, fast logging, and meaningful insights without cloud lock-in.
+**RoundCount** is a local-first iOS app for tracking firearms, live range sessions, ammo usage, and gear setups — built for **real-world shooters** who want fast logging, trustworthy data, and meaningful insights without cloud lock-in.
 
 The app offers a **Free tier** for casual shooters and a **Pro tier** for competitors, instructors, and serious enthusiasts who want deeper analytics and long-term training insight.
 
@@ -10,44 +10,45 @@ The app offers a **Free tier** for casual shooters and a **Pro tier** for compet
 
 ### Free
 - Track firearms (brand, model, caliber, class)
-- Log range sessions (round count, date, notes)
+- Log live or manual range sessions
 - Track total rounds per firearm
 - Review session history per firearm
+- Local-only storage (no accounts, no sync)
 
 ### Pro
-- Session photos (stored locally, on-device)
+- Live timed sessions (Session v2)
+- Session photos (targets / malfunctions)
 - Malfunction tracking (categorized + totals)
 - Total range time per session
 - Firearm setups (optic / light / gear configurations)
 - Session → Setup linkage
-- Analytics dashboards (global + per-firearm)
-- Branded UI with subtle neon card styling
+- Reliability & usage analytics
+- Branded UI with subtle neon accent cards
 
 > **Privacy-first:** All data is stored locally on-device.  
-> No accounts. No cloud. No tracking.
+> No accounts. No cloud. No tracking. Ever.
 
 ---
 
 ## 📊 Analytics (Pro)
 
-RoundCount Pro includes **local, on-device analytics** designed to answer practical questions shooters actually care about:
+RoundCount Pro includes **on-device analytics** designed to answer practical questions shooters actually care about — without exporting data or relying on the cloud.
 
 ### Dashboard Analytics
 - Total rounds fired
 - Total range time
 - Malfunctions per 1k rounds
 - Rounds over time (range-selectable)
-- Top setups by usage
-- Top ammo by rounds fired
+- Top firearms & setups by usage
+- Ammo usage by caliber / product
 
 ### Per-Firearm Analytics
 - Firearm-specific round totals
-- Daily & weekly round trends
+- Reliability metrics
 - Setup usage breakdown
-- Malfunction rates per firearm
 - Time-range filtering (7D / 30D / 90D / 1Y / All)
 
-Analytics are computed from **immutable snapshots** to ensure performance and avoid UI render loops.
+Analytics are computed from **session snapshots** to ensure performance, accuracy, and UI stability.
 
 ---
 
@@ -59,88 +60,89 @@ Analytics are computed from **immutable snapshots** to ensure performance and av
 - **Persistence:** SwiftData
 - **Architecture:** Local-first, model-driven
 - **Platform:** iOS
-- **Monetization:** Feature-gated Pro tier (StoreKit planned)
+- **Monetization:** Feature-gated Pro tier (StoreKit)
 
 ---
 
 ## 📌 Project Status
 
-- **Current version:** `0.9.0 (1)`
-- **Status:** Internal TestFlight (Phase 1)
+- **Current version:** `0.9.0 (Build 1)`
+- **Status:** Internal TestFlight
 - **Target public v1.0:** ~March 15, 2026
 
-This build is feature-complete for core logging, setups, and analytics.  
-Ongoing work is focused on polish, battery lifecycle tracking, and maintenance features.
+The core V1 feature set is implemented.  
+Current work is focused on **UX polish, reliability fixes, analytics trust, and TestFlight feedback** ahead of public launch.
 
 ---
 
 ## 🗺 Roadmap
 
-### ✅ Phase 1 — MVP (Complete)
+### ✅ Phase 1 — Core MVP (Complete)
 - [x] Firearm model + CRUD
-- [x] Session logging
-- [x] Ammo selection
-- [x] Session review per firearm
+- [x] Manual session logging
+- [x] Ammo library
+- [x] Session history per firearm
 - [x] Free / Pro entitlement system
 - [x] Paywall UI
 
 ---
 
-### ✅ Phase 2 — Sessions v2 (Pro MVP) (Complete)
-- [x] Session photos
-- [x] Malfunction tracking
+### ✅ Phase 2 — Sessions v2 (Live Sessions) (Complete)
+- [x] Live, timed shooting sessions
+- [x] Firearm runs within a session
 - [x] Total range time
-- [x] Session detail view
-- [x] Pro feature gating + locked UI
-- [x] Branded neon card styling
+- [x] Session notes & summaries
+- [x] Pro feature gating
+- [x] Branded card system
 
 ---
 
-### ✅ Phase 2.5 — Sessions ↔ Gear Linkage (Complete)
+### ✅ Phase 2.5 — Sessions ↔ Gear (Complete)
 - [x] Firearm setups (per firearm)
-- [x] Select setup when logging a session
-- [x] Review setup used in session detail
+- [x] Select setup during session
+- [x] Setup shown in session detail
 - [x] Pro-only gating + paywall entry points
 
 ---
 
-### 🟡 Phase 3 — Analytics & Battery Foundations (In Progress)
-- [x] Dashboard analytics (global)
+### 🟡 Phase 3 — Analytics & Reliability (In Progress)
+- [x] Dashboard analytics
 - [x] Per-firearm analytics
 - [x] Time-range filtering
 - [x] Snapshot-based analytics engine
-- [ ] Gear battery lifecycle tracking
-- [ ] Days / rounds since battery change
+- [x] Reliability polish & validation
+- [ ] Performance tuning
 
 ---
 
-### 🔜 Phase 4 — Maintenance & Export
-- [ ] Maintenance reminders (round-based + time-based)
-- [ ] CSV / PDF export
+### 🔜 Phase 4 — Maintenance & Inventory
+- [ ] Maintenance tracking (round-based + time-based)
+- [ ] Gear battery lifecycle tracking
 - [ ] Ammo inventory integration
+- [ ] CSV / PDF export
 
 ---
 
 ### 🔮 Phase 5 — Target Analysis (Future / R&D)
-- [ ] Target photo capture
+- [ ] Target photo analysis
 - [ ] Grouping pattern detection
-- [ ] Conservative technique insights (non-prescriptive)
+- [ ] Conservative, non-prescriptive technique insights
 
 ---
 
 ## 🧠 Design Philosophy
 
 - **Local-first** — your data stays on your device
-- **Fast logging** — minimal friction at the range
-- **Reviewable history** — sessions only matter if you can review them
-- **No fluff** — features exist because shooters actually use them
+- **Shooter-native** — built around real range habits
+- **Low-friction logging** — fast sessions matter
+- **Trust over fluff** — analytics you can rely on
 
 ---
 
 ## 🚧 Disclaimer
 
 RoundCount is intended for **training and logging purposes only**.  
-It does **not** provide firearms advice, safety instruction, or tactical guidance.
+It does **not** provide firearms instruction, safety guidance, or tactical advice.
 
 ---
 
