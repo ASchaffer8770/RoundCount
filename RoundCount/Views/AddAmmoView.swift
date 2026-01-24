@@ -11,6 +11,7 @@ import SwiftData
 struct AddAmmoView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.colorScheme) private var scheme
 
     let editingAmmo: AmmoProduct?
 
@@ -39,6 +40,16 @@ struct AddAmmoView: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+
+            // ✅ Sheet header (no NavigationStack needed)
+            SheetHeaderBar(
+                title: editingAmmo == nil ? "Add Ammo" : "Edit Ammo",
+                onCancel: { dismiss() },
+                onSave: { save() },
+                saveEnabled: canSave
+            )
+
             Form {
                 Section("Core") {
                     TextField("Brand (e.g., CCI, Federal)", text: $brand)
@@ -77,17 +88,10 @@ struct AddAmmoView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle(editingAmmo == nil ? "Add Ammo" : "Edit Ammo")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Save") { save() }
-                        .disabled(!canSave)
-                }
-            }
+            .scrollContentBackground(.hidden)
+        }
+        // ✅ matches your app background styling
+        .background(Brand.pageBackground(scheme))
     }
 
     private var canSave: Bool {
@@ -139,7 +143,6 @@ struct AddAmmoView: View {
         dismiss()
     }
 }
-
 
 #Preview {
     AddAmmoView()

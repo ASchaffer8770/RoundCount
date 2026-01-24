@@ -312,6 +312,7 @@ struct LiveSessionView: View {
 
     @FocusState private var focusedField: FocusField?
     enum FocusField: Hashable {
+        case runRounds(UUID)
         case runNotes(UUID)
         case sessionNotes
     }
@@ -327,6 +328,10 @@ struct LiveSessionView: View {
 
     @State private var roundsTextByRun: [UUID: String] = [:]
     @State private var isEditingRoundsForRun: UUID? = nil
+    
+    // Pro gating (Photos)
+    @State private var showPaywall = false
+    @State private var showPhotosProAlert = false
 
     // Photos flow
     @State private var showCamera = false
@@ -338,6 +343,13 @@ struct LiveSessionView: View {
     @State private var pendingPhotoTag: SessionPhotoTag = .target
     @State private var showPhotoTagSheet = false
     @State private var showNoActiveRunPhotoAlert = false
+    
+    private func gatePhotos() -> Bool {
+        if entitlements.isPro { return true }
+        haptic(.light)
+        showPhotosProAlert = true
+        return false
+    }
 
     private var activeRunPhotos: [SessionPhoto] {
         guard let run = vm.activeRun else { return [] }
@@ -391,6 +403,12 @@ struct LiveSessionView: View {
     // MARK: Photo helpers
 
     private func beginAddPhotoFlow(images: [UIImage]) {
+        guard entitlements.isPro else {
+            haptic(.light)
+            showPhotosProAlert = true
+            return
+        }
+
         guard vm.activeRun != nil else {
             haptic(.light)
             showNoActiveRunPhotoAlert = true
@@ -505,10 +523,15 @@ struct LiveSessionView: View {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button("Done") {
-                    // Commit active run total if needed
-                    if let run = vm.activeRun {
+                    // If we were editing a specific run's rounds, commit that one
+                    if let rid = isEditingRoundsForRun,
+                       let run = vm.runs.first(where: { $0.id == rid }) {
+                        commitRoundsText(for: run)
+                    } else if let run = vm.activeRun {
+                        // Fallback
                         commitRoundsText(for: run)
                     }
+
                     isEditingRoundsForRun = nil
                     focusedField = nil
                 }
@@ -539,6 +562,21 @@ struct LiveSessionView: View {
             Text("This can’t be undone.")
         }
 
+        .alert("Upgrade to Pro", isPresented: $showPhotosProAlert) {
+            Button("Not now", role: .cancel) {}
+            Button("See Pro") { showPaywall = true }
+        } message: {
+            Text("Adding photos to firearm runs is a Pro feature.")
+        }
+
+        .sheet(isPresented: $showPaywall) {
+            PayWallView(
+                title: "RoundCount Pro",
+                subtitle: "Add photos to firearm runs (targets + malfunctions) with Pro."
+            )
+            .environmentObject(entitlements)
+        }
+        
         .sheet(isPresented: $showFirearmPicker) {
             NavigationStack {
                 FirearmPickerSheet(
@@ -737,6 +775,7 @@ struct LiveSessionView: View {
 
                 Button {
                     focusedField = nil
+                    guard gatePhotos() else { return }
                     showCamera = true
                     haptic(.light)
                 } label: {
@@ -750,7 +789,21 @@ struct LiveSessionView: View {
                         .labelStyle(.titleAndIcon)
                 }
                 .buttonStyle(ChipButtonStyle())
+                .disabled(!entitlements.isPro)
+                .opacity(entitlements.isPro ? 1.0 : 0.55)
+                .onTapGesture {
+                    // Helps explain *why* it's disabled
+                    if !entitlements.isPro {
+                        _ = gatePhotos()
+                    }
+                }
                 .onChange(of: pickedItems) { _, newItems in
+                    // Double safety: if picker somehow returns items, refuse
+                    guard entitlements.isPro else {
+                        pickedItems = []
+                        _ = gatePhotos()
+                        return
+                    }
                     handlePickedPhotos(newItems)
                 }
             }
@@ -1450,12 +1503,15 @@ struct LiveSessionView: View {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .strokeBorder(.quaternary, lineWidth: 1)
                 )
+                .keyboardType(.numberPad)
+                .focused($focusedField, equals: .runRounds(run.id))
                 .onTapGesture {
                     isEditingRoundsForRun = run.id
+                    focusedField = .runRounds(run.id)
                 }
                 .onChange(of: focusedField) { _, newValue in
-                    // If we were editing this run and focus moved away, commit.
-                    if newValue == nil, isEditingRoundsForRun == run.id {
+                    // When leaving this rounds field, commit
+                    if isEditingRoundsForRun == run.id, newValue != .runRounds(run.id) {
                         commitRoundsText(for: run)
                         isEditingRoundsForRun = nil
                     }

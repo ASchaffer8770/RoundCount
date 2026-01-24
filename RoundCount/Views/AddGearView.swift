@@ -2,8 +2,6 @@
 //  AddGearView.swift
 //  RoundCount
 //
-//  Created by Alex Schaffer on 1/16/26.
-//
 
 import SwiftUI
 import SwiftData
@@ -13,6 +11,8 @@ struct AddGearView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.colorScheme) private var scheme
+    @EnvironmentObject private var entitlements: Entitlements
 
     @State private var type: GearType = .optic
     @State private var brand: String = ""
@@ -23,7 +23,23 @@ struct AddGearView: View {
     @State private var batteryType: String = ""
     @State private var installedAt: Date = .now
 
+    // ✅ Pro gating UI
+    @State private var showPaywall = false
+    @State private var paywallFeature: Feature? = nil
+    @State private var gateMessage: String? = nil
+    @State private var showGateAlert = false
+
     var body: some View {
+        VStack(spacing: 0) {
+
+            // ✅ Sheet-safe header (Cancel / Save)
+            SheetHeaderBar(
+                title: "Add Gear",
+                onCancel: { dismiss() },
+                onSave: { save() },
+                saveEnabled: canSave
+            )
+
             Form {
                 Section("Gear") {
                     Picker("Type", selection: $type) {
@@ -33,7 +49,10 @@ struct AddGearView: View {
                     }
 
                     TextField("Brand", text: $brand)
+                        .textInputAutocapitalization(.words)
+
                     TextField("Model", text: $model)
+                        .textInputAutocapitalization(.words)
                 }
 
                 Section("Battery (optional)") {
@@ -41,6 +60,9 @@ struct AddGearView: View {
 
                     if trackBattery {
                         TextField("Battery type (e.g., CR1632)", text: $batteryType)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled(true)
+
                         DatePicker("Installed", selection: $installedAt, displayedComponents: .date)
 
                         Button("Set Installed = Today") {
@@ -54,14 +76,25 @@ struct AddGearView: View {
                         .lineLimit(3, reservesSpace: true)
                 }
             }
-            .navigationTitle("Add Gear")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Save") { save() }
-                        .disabled(!canSave)
-                }
-            }
+            .scrollContentBackground(.hidden)
+        }
+        .background(Brand.pageBackground(scheme))
+
+        // ✅ Paywall + alert (unchanged)
+        .sheet(isPresented: $showPaywall) {
+            PayWallView(
+                title: "RoundCount Pro",
+                subtitle: gateMessage
+            )
+            .environmentObject(entitlements)
+        }
+
+        .alert("Upgrade to Pro", isPresented: $showGateAlert) {
+            Button("Not now", role: .cancel) {}
+            Button("See Pro") { showPaywall = true }
+        } message: {
+            Text(gateMessage ?? "This feature requires RoundCount Pro.")
+        }
     }
 
     private var canSave: Bool {
@@ -70,31 +103,40 @@ struct AddGearView: View {
     }
 
     private func save() {
+        guard entitlements.isPro else {
+            paywallFeature = .firearmSetups
+            gateMessage = "Setups & gear are a Pro feature. Upgrade to add gear (optic/light/etc.) and track batteries."
+            showGateAlert = true
+            return
+        }
+
         let b = brand.trimmingCharacters(in: .whitespacesAndNewlines)
         let m = model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !b.isEmpty, !m.isEmpty else { return }
 
+        let bt = batteryType.trimmingCharacters(in: .whitespacesAndNewlines)
         let battery: BatteryInfo? = trackBattery ? BatteryInfo(
-            batteryType: batteryType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : batteryType,
+            batteryType: bt.isEmpty ? nil : bt,
             installedAt: installedAt,
             notes: nil,
             roundsSinceChange: nil,
             secondsSinceChange: nil
         ) : nil
 
+        let nTrimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         let item = GearItem(
             setup: setup,
             type: type,
             brand: b,
             model: m,
-            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : notes,
+            notes: nTrimmed.isEmpty ? nil : nTrimmed,
             battery: battery
         )
 
         modelContext.insert(item)
         setup.gear.append(item)
 
+        try? modelContext.save()
         dismiss()
     }
 }
-

@@ -23,6 +23,20 @@ struct FirearmDetailView: View {
     @State private var showAddSetup = false
     @State private var showLiveSession = false
 
+    // ✅ Pro gating UI
+    @State private var showPaywall = false
+    @State private var paywallFeature: Feature? = nil
+    @State private var gateMessage: String? = nil
+    @State private var showGateAlert = false
+
+    // ✅ Pro-only destination sheets
+    @State private var showMagazinesSheet = false
+    @State private var showSetupDetailSheet = false
+    @State private var selectedSetup: FirearmSetup? = nil
+
+    // ✅ NEW: Firearm analytics sheet
+    @State private var showFirearmAnalyticsSheet = false
+
     // Default = last 30 days
     @State private var range: FirearmDetailDateRange = .days30
 
@@ -94,7 +108,7 @@ struct FirearmDetailView: View {
             }
         }
 
-        // ✅ Sheets only (no programmatic navigation destinations in this detail screen)
+        // ✅ Base sheets
         .sheet(isPresented: $showEdit) {
             AddFirearmView(editingFirearm: firearm)
         }
@@ -102,8 +116,44 @@ struct FirearmDetailView: View {
             AddSetupView(firearm: firearm)
         }
         .sheet(isPresented: $showLiveSession) {
-            // ✅ start a live session already preselected to this firearm
             LiveSessionView(preselectedFirearmID: firearm.id)
+        }
+
+        // ✅ Pro-only destination sheets
+        .sheet(isPresented: $showMagazinesSheet) {
+            FirearmMagazinesEditorView(firearm: firearm)
+        }
+        .sheet(isPresented: $showSetupDetailSheet) {
+            if let setup = selectedSetup {
+                SetupDetailView(firearm: firearm, setup: setup)
+            }
+        }
+
+        // ✅ NEW: Firearm analytics (Pro-only)
+        .sheet(isPresented: $showFirearmAnalyticsSheet) {
+            NavigationStack {
+                FirearmAnalyticsScreen(
+                    title: firearm.displayName,
+                    firearmId: firearm.id
+                )
+                .environmentObject(entitlements)
+            }
+        }
+
+        // ✅ Pro paywall + alert
+        .sheet(isPresented: $showPaywall) {
+            PayWallView(
+                title: "RoundCount Pro",
+                subtitle: gateMessage
+            )
+            .environmentObject(entitlements)
+        }
+
+        .alert("Upgrade to Pro", isPresented: $showGateAlert) {
+            Button("Not now", role: .cancel) {}
+            Button("See Pro") { showPaywall = true }
+        } message: {
+            Text(gateMessage ?? "This feature requires RoundCount Pro.")
         }
     }
 
@@ -140,6 +190,7 @@ struct FirearmDetailView: View {
             Text("Quick Actions")
                 .font(.headline)
 
+            // Start Live Session
             Button {
                 showLiveSession = true
             } label: {
@@ -154,6 +205,22 @@ struct FirearmDetailView: View {
                 .padding()
             }
             .buttonStyle(.borderedProminent)
+
+            // ✅ NEW: Firearm Analytics (Pro-only)
+            Button {
+                openFirearmAnalytics()
+            } label: {
+                HStack {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                    Text("Analytics")
+                    Spacer()
+                    Image(systemName: entitlements.isPro ? "chevron.right" : "lock.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding()
+            }
+            .buttonStyle(.bordered)
 
             VStack(spacing: 10) {
                 overviewRow("Purchased", firearm.purchaseDate?.formatted(date: .abbreviated, time: .omitted) ?? "—")
@@ -199,10 +266,8 @@ struct FirearmDetailView: View {
             Text("Gear & Setups")
                 .font(.headline)
 
-            // ✅ Use a direct NavigationLink (no showMagazines + no .navigationDestination(isPresented:))
-            NavigationLink {
-                FirearmMagazinesEditorView(firearm: firearm)
-            } label: {
+            // ✅ Magazines row (gated for Free)
+            Button { openMagazines() } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "magazine.fill")
                         .font(.title3)
@@ -231,7 +296,7 @@ struct FirearmDetailView: View {
                 Text("No setups yet.")
                     .foregroundStyle(.secondary)
 
-                Button { showAddSetup = true } label: {
+                Button { openAddSetup() } label: {
                     Label("Add Setup", systemImage: "plus.circle.fill")
                 }
                 .buttonStyle(.bordered)
@@ -242,8 +307,8 @@ struct FirearmDetailView: View {
                         return $0.createdAt > $1.createdAt
                     }
                 ) { setup in
-                    NavigationLink {
-                        SetupDetailView(firearm: firearm, setup: setup)
+                    Button {
+                        openSetupDetail(setup)
                     } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
@@ -263,12 +328,16 @@ struct FirearmDetailView: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
                         }
                         .padding(.vertical, 6)
                     }
+                    .buttonStyle(.plain)
                 }
 
-                Button { showAddSetup = true } label: {
+                Button { openAddSetup() } label: {
                     Label("Add Setup", systemImage: "plus")
                 }
                 .buttonStyle(.bordered)
@@ -307,6 +376,49 @@ struct FirearmDetailView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(.quaternary, lineWidth: 1)
         )
+    }
+
+    // MARK: - Gating actions
+
+    private func openFirearmAnalytics() {
+        guard entitlements.isPro else {
+            paywallFeature = .firearmAnalytics
+            gateMessage = "Firearm analytics are a Pro feature. Upgrade to see trends, averages, and reliability insights for this firearm."
+            showGateAlert = true
+            return
+        }
+        showFirearmAnalyticsSheet = true
+    }
+
+    private func openMagazines() {
+        guard entitlements.isPro else {
+            paywallFeature = .magazines
+            gateMessage = "Magazines are a Pro feature. Upgrade to save capacities per firearm for faster round logging."
+            showGateAlert = true
+            return
+        }
+        showMagazinesSheet = true
+    }
+
+    private func openAddSetup() {
+        guard entitlements.isPro else {
+            paywallFeature = .firearmSetups
+            gateMessage = "Setups & gear are a Pro feature. Upgrade to create setups (optic/light/etc.) for each firearm."
+            showGateAlert = true
+            return
+        }
+        showAddSetup = true
+    }
+
+    private func openSetupDetail(_ setup: FirearmSetup) {
+        guard entitlements.isPro else {
+            paywallFeature = .firearmSetups
+            gateMessage = "Setups & gear are a Pro feature. Upgrade to view and manage setups."
+            showGateAlert = true
+            return
+        }
+        selectedSetup = setup
+        showSetupDetailSheet = true
     }
 
     // MARK: - Rows

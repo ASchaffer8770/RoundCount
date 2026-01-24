@@ -24,7 +24,11 @@ struct AnalyticsDashboardView: View {
             if entitlements.isPro {
                 content
             } else {
-                PaywallView(sourceFeature: .advancedAnalytics)
+                PayWallView(
+                    title: "RoundCount Pro",
+                    subtitle: "Advanced analytics are a Pro feature."
+                )
+                .environmentObject(entitlements)
             }
         }
         .navigationTitle("Analytics")

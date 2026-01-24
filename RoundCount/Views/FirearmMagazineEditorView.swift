@@ -10,10 +10,18 @@ import SwiftData
 
 struct FirearmMagazinesEditorView: View {
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var entitlements: Entitlements
+
     let firearm: Firearm
 
     @State private var newCapacity: Int = 17
     @State private var newLabel: String = ""
+
+    // ✅ Pro gating UI
+    @State private var showPaywall = false
+    @State private var paywallFeature: Feature? = nil
+    @State private var gateMessage: String? = nil
+    @State private var showGateAlert = false
 
     private var magsSorted: [FirearmMagazine] {
         firearm.magazines.sorted { $0.createdAt > $1.createdAt }
@@ -35,16 +43,7 @@ struct FirearmMagazinesEditorView: View {
                 TextField("Label (optional) — e.g. OEM, MBX, #2", text: $newLabel)
 
                 Button {
-                    let mag = FirearmMagazine(
-                        firearm: firearm,
-                        capacity: newCapacity,
-                        label: newLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : newLabel
-                    )
-                    modelContext.insert(mag)
-                    firearm.magazines.append(mag)
-                    try? modelContext.save()
-
-                    newLabel = ""
+                    addMagazine()
                 } label: {
                     Label("Add Magazine", systemImage: "plus.circle.fill")
                 }
@@ -67,6 +66,8 @@ struct FirearmMagazinesEditorView: View {
                         }
                     }
                     .onDelete { idxSet in
+                        // ✅ You said: Free cannot add magazines. Deleting is fine.
+                        // If you want Free to be unable to *manage* magazines too, gate this as well.
                         for idx in idxSet {
                             let mag = magsSorted[idx]
                             firearm.magazines.removeAll(where: { $0.id == mag.id })
@@ -78,6 +79,44 @@ struct FirearmMagazinesEditorView: View {
             }
         }
         .navigationTitle("Magazines")
+
+        // ✅ Paywall + alert
+        .sheet(isPresented: $showPaywall) {
+            PayWallView(
+                title: "RoundCount Pro",
+                subtitle: "Upgrade to unlock Pro features."
+            )
+            .environmentObject(entitlements)
+        }
+
+        .alert("Upgrade to Pro", isPresented: $showGateAlert) {
+            Button("Not now", role: .cancel) {}
+            Button("See Pro") { showPaywall = true }
+        } message: {
+            Text(gateMessage ?? "This feature requires RoundCount Pro.")
+        }
+    }
+
+    private func addMagazine() {
+        guard entitlements.isPro else {
+            // Recommended: add Feature.magazines for clean messaging.
+            paywallFeature = .magazines
+            gateMessage = "Magazines are a Pro feature. Upgrade to save capacities per firearm for faster round logging."
+            showGateAlert = true
+            return
+        }
+
+        let trimmedLabel = newLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mag = FirearmMagazine(
+            firearm: firearm,
+            capacity: newCapacity,
+            label: trimmedLabel.isEmpty ? nil : trimmedLabel
+        )
+
+        modelContext.insert(mag)
+        firearm.magazines.append(mag)
+        try? modelContext.save()
+
+        newLabel = ""
     }
 }
-

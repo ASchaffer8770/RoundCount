@@ -44,14 +44,24 @@ struct FirearmsView: View {
         .navigationTitle("Firearms")
 
         // Sheets / Alerts
-        .sheet(isPresented: $showAdd) { AddFirearmView() }
+        .sheet(isPresented: $showAdd) {
+            AddFirearmView()
+                .presentationDetents([.large])
+        }
+        
         .sheet(item: $editingFirearm) { f in
             AddFirearmView(editingFirearm: f)
+                .presentationDetents([.large])
         }
+
         .sheet(isPresented: $showPaywall) {
-            PaywallView(sourceFeature: paywallFeature)
-                .environmentObject(entitlements)
+            PayWallView(
+                title: "RoundCount Pro",
+                subtitle: gateMessage
+            )
+            .environmentObject(entitlements)
         }
+
         .alert("Upgrade to Pro", isPresented: $showGateAlert) {
             Button("Not now", role: .cancel) {}
             Button("See Pro") { showPaywall = true }

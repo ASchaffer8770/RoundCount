@@ -12,6 +12,8 @@ struct FirearmAnalyticsScreen: View {
     let title: String
     let firearmId: UUID
 
+    @EnvironmentObject private var entitlements: Entitlements
+
     @State private var range: AnalyticsTimeRange = .days90
 
     @State private var totals: TotalsSummary = .init(rounds: 0, durationSeconds: 0, malfunctions: 0)
@@ -36,11 +38,16 @@ struct FirearmAnalyticsScreen: View {
     }
 
     var body: some View {
-        List {
-            rangePickerSection
-            heroSection
-            trendSection
-            footerNote
+        Group {
+            if entitlements.isPro {
+                contentList
+            } else {
+                PayWallView(
+                    title: "RoundCount Pro",
+                    subtitle: "Firearm analytics are a Pro feature."
+                )
+                .environmentObject(entitlements)
+            }
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
@@ -48,6 +55,15 @@ struct FirearmAnalyticsScreen: View {
         .onChange(of: range) { _, _ in recompute() }
         .onChange(of: runs.count) { _, _ in recompute() }
         .onChange(of: runs.first?.id) { _, _ in recompute() }
+    }
+
+    private var contentList: some View {
+        List {
+            rangePickerSection
+            heroSection
+            trendSection
+            footerNote
+        }
     }
 
     // MARK: - Sections
@@ -237,7 +253,7 @@ struct FirearmAnalyticsScreen: View {
         let cal = Calendar.current
         let start = range.startDate(reference: now, calendar: cal)
 
-        // Filter runs by range (simple loop to keep compiler happy)
+        // Filter runs by range
         var filtered: [FirearmRun] = []
         filtered.reserveCapacity(runs.count)
         if let start {
@@ -268,7 +284,7 @@ struct FirearmAnalyticsScreen: View {
         sessionsCount = sessionIDs.count
         avgRoundsPerSession = sessionsCount > 0 ? Int(round(Double(rounds) / Double(sessionsCount))) : 0
 
-        // Last session date (latest run’s session startedAt)
+        // Last session date
         lastSessionDate = filtered.first?.session.startedAt
 
         // Trend buckets

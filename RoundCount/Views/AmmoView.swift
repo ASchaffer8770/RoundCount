@@ -11,6 +11,7 @@ import SwiftData
 struct AmmoView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var scheme
+    @EnvironmentObject private var router: AppRouter
 
     @Query(sort: \AmmoProduct.createdAt, order: .reverse)
     private var ammo: [AmmoProduct]
@@ -51,154 +52,162 @@ struct AmmoView: View {
     }
 
     var body: some View {
-            List {
-                // MARK: Summary (parent card)
-                Section {
-                    VStack(alignment: .leading, spacing: Brand.Spacing.s) {
-                        HStack(spacing: 12) {
-                            summaryPill(
-                                title: "Types",
-                                value: "\(ammoTypesCount)",
-                                systemImage: "tag.fill"
-                            )
+        List {
+            // MARK: Summary (parent card)
+            Section {
+                VStack(alignment: .leading, spacing: Brand.Spacing.s) {
+                    HStack(spacing: 12) {
+                        summaryPill(
+                            title: "Types",
+                            value: "\(ammoTypesCount)",
+                            systemImage: "tag.fill"
+                        )
 
-                            summaryPill(
-                                title: "Last added",
-                                value: mostRecentText,
-                                systemImage: "clock.fill"
+                        summaryPill(
+                            title: "Last added",
+                            value: mostRecentText,
+                            systemImage: "clock.fill"
+                        )
+                    }
+
+                    Text("Select ammo in Live runs to compute malfunction rate per ammo type.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(14)
+                .accentCard(radius: Brand.Radius.l)
+            }
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+
+            // MARK: Ammo library (parent card)
+            Section {
+                VStack(alignment: .leading, spacing: Brand.Spacing.s) {
+
+                    // Header + Add button (✅ always available)
+                    HStack(spacing: 10) {
+                        Text("Ammo library")
+                            .font(Brand.Typography.section)
+
+                        Spacer()
+
+                        Button {
+                            openAddAmmo()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "plus")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("Add")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule()
+                                    .fill(Brand.accent.opacity(scheme == .dark ? 0.18 : 0.12))
+                            )
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(Brand.accent.opacity(scheme == .dark ? 0.35 : 0.25), lineWidth: 1)
                             )
                         }
-
-                        Text("Select ammo in Live runs to compute malfunction rate per ammo type.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        .buttonStyle(.plain)
                     }
-                    .padding(14)
-                    .accentCard(radius: Brand.Radius.l)
-                }
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
 
-                // MARK: Ammo library (parent card)
-                Section {
-                    VStack(alignment: .leading, spacing: Brand.Spacing.s) {
+                    if filtered.isEmpty {
+                        VStack(spacing: 12) {
+                            ContentUnavailableView(
+                                "No Ammo",
+                                systemImage: "shippingbox",
+                                description: Text(searchText.isEmpty
+                                                  ? "Add the ammo you actually buy so Live sessions can attribute malfunctions to a load."
+                                                  : "No matches for “\(searchText)”.")
+                            )
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
 
-                        // Header + Add button (✅ always available)
-                        HStack(spacing: 10) {
-                            Text("Ammo library")
-                                .font(Brand.Typography.section)
-
-                            Spacer()
-
+                            // ✅ Primary CTA (fresh install fix)
                             Button {
                                 openAddAmmo()
                             } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "plus")
-                                        .font(.subheadline.weight(.semibold))
-                                    Text("Add")
-                                        .font(.subheadline.weight(.semibold))
+                                HStack(spacing: 10) {
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.title3)
+                                    Text("Add Ammo")
+                                        .font(.headline)
+                                    Spacer()
                                 }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(
-                                    Capsule()
-                                        .fill(Brand.accent.opacity(scheme == .dark ? 0.18 : 0.12))
-                                )
-                                .overlay(
-                                    Capsule()
-                                        .strokeBorder(Brand.accent.opacity(scheme == .dark ? 0.35 : 0.25), lineWidth: 1)
-                                )
+                                .padding(12)
                             }
                             .buttonStyle(.plain)
+                            .surfaceCard(radius: Brand.Radius.m)
                         }
-
-                        if filtered.isEmpty {
-                            VStack(spacing: 12) {
-                                ContentUnavailableView(
-                                    "No Ammo",
-                                    systemImage: "shippingbox",
-                                    description: Text(searchText.isEmpty
-                                                      ? "Add the ammo you actually buy so Live sessions can attribute malfunctions to a load."
-                                                      : "No matches for “\(searchText)”.")
-                                )
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-
-                                // ✅ Primary CTA (fresh install fix)
+                        .surfaceCard(radius: Brand.Radius.m)
+                    } else {
+                        VStack(spacing: 10) {
+                            ForEach(filtered) { a in
                                 Button {
-                                    openAddAmmo()
+                                    router.ammoPath.append(.ammoDetail(a.persistentModelID))
                                 } label: {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: "plus.circle.fill")
-                                            .font(.title3)
-                                        Text("Add Ammo")
-                                            .font(.headline)
-                                        Spacer()
+                                    HStack(spacing: 12) {
+                                        AmmoRow(ammo: a)
+                                        Spacer(minLength: 0)
+                                        Image(systemName: "chevron.right")
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
                                     }
                                     .padding(12)
+                                    .surfaceCard(radius: Brand.Radius.m)
+                                    .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.m, style: .continuous))
                                 }
                                 .buttonStyle(.plain)
-                                .surfaceCard(radius: Brand.Radius.m)
-                            }
-                            .surfaceCard(radius: Brand.Radius.m)
-                        } else {
-                            VStack(spacing: 10) {
-                                ForEach(filtered) { a in
-                                    NavigationLink {
-                                        AmmoDetailView(ammo: a)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button {
+                                        editingAmmo = a
                                     } label: {
-                                        AmmoRow(ammo: a)
-                                            .padding(12)
-                                            .surfaceCard(radius: Brand.Radius.m)
+                                        Label("Edit", systemImage: "pencil")
                                     }
-                                    .buttonStyle(.plain)
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                        Button {
-                                            editingAmmo = a
-                                        } label: {
-                                            Label("Edit", systemImage: "pencil")
-                                        }
-                                        .tint(.blue)
+                                    .tint(.blue)
 
-                                        Button(role: .destructive) {
-                                            modelContext.delete(a)
-                                            try? modelContext.save()
-                                        } label: {
-                                            Label("Delete", systemImage: "trash")
-                                        }
+                                    Button(role: .destructive) {
+                                        modelContext.delete(a)
+                                        try? modelContext.save()
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
                                     }
                                 }
                             }
                         }
                     }
-                    .padding(14)
-                    .accentCard(radius: Brand.Radius.l)
                 }
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-
-                // MARK: Ammo Dashboard (parent card)
-                Section {
-                    ammoDashboardCard
-                }
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+                .padding(14)
+                .accentCard(radius: Brand.Radius.l)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(Brand.pageBackground(scheme))
-            .navigationTitle("Ammo")
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
-            // ✅ No toolbar + on purpose
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
 
-            .sheet(isPresented: $showAdd) { AddAmmoView() }
-            .sheet(item: $editingAmmo) { a in AddAmmoView(editingAmmo: a) }
+            // MARK: Ammo Dashboard (parent card)
+            Section {
+                ammoDashboardCard
+            }
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Brand.pageBackground(scheme))
+        .navigationTitle("Ammo")
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
 
-            .onAppear { recomputeDashboard() }
-            .onChange(of: dashRange) { _, _ in recomputeDashboard() }
-            .onChange(of: ammo.count) { _, _ in recomputeDashboard() }
-            .onChange(of: runs.count) { _, _ in recomputeDashboard() }
+        // Sheets
+        .sheet(isPresented: $showAdd) { AddAmmoView() }
+        .sheet(item: $editingAmmo) { a in AddAmmoView(editingAmmo: a) }
+
+        // Recompute dashboard
+        .onAppear { recomputeDashboard() }
+        .onChange(of: dashRange) { _, _ in recomputeDashboard() }
+        .onChange(of: ammo.count) { _, _ in recomputeDashboard() }
+        .onChange(of: runs.count) { _, _ in recomputeDashboard() }
     }
 
     // MARK: - Summary pill (inner card)
@@ -272,12 +281,19 @@ struct AmmoView: View {
                 VStack(spacing: 10) {
                     ForEach(dashRows) { row in
                         if let a = ammoByID(row.id) {
-                            NavigationLink {
-                                AmmoDetailView(ammo: a)
+                            Button {
+                                router.ammoPath.append(.ammoDetail(a.persistentModelID))
                             } label: {
-                                ammoDashRow(row)
-                                    .padding(12)
-                                    .surfaceCard(radius: Brand.Radius.m)
+                                HStack(spacing: 12) {
+                                    ammoDashRow(row)
+                                    Spacer(minLength: 0)
+                                    Image(systemName: "chevron.right")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(12)
+                                .surfaceCard(radius: Brand.Radius.m)
+                                .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.m, style: .continuous))
                             }
                             .buttonStyle(.plain)
                         } else {

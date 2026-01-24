@@ -97,10 +97,18 @@ struct DashboardView: View {
         .navigationTitle("RoundCount")
 
         // Sheets
-        .sheet(isPresented: $showAddFirearm) { AddFirearmView() }
+        .sheet(isPresented: $showAddFirearm) {
+            NavigationStack {
+                AddFirearmView()
+                    .environmentObject(entitlements) // ✅ explicit, matches paywall pattern
+            }
+        }
         .sheet(isPresented: $showPaywall) {
-            PaywallView(sourceFeature: paywallFeature)
-                .environmentObject(entitlements)
+            PayWallView(
+                title: "RoundCount Pro",
+                subtitle: gateMessage
+            )
+            .environmentObject(entitlements)
         }
         .alert("Upgrade to Pro", isPresented: $showGateAlert) {
             Button("Not now", role: .cancel) {}
@@ -276,7 +284,6 @@ struct DashboardView: View {
                     .foregroundStyle(.secondary)
             }
             .padding(14)
-            // ✅ makes the whole card tappable, not just text
             .contentShape(RoundedRectangle(cornerRadius: Brand.Radius.l, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -406,7 +413,7 @@ struct DashboardView: View {
             return
         }
 
-        paywallFeature = .advancedAnalytics
+        paywallFeature = nil
         gateMessage = "Analytics is a Pro feature. Upgrade to unlock trends, breakdowns, and performance insights."
         showGateAlert = true
     }

@@ -12,6 +12,13 @@ struct AddFirearmView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
+    // ✅ Pro gating
+    @EnvironmentObject private var entitlements: Entitlements
+    @State private var showPaywall = false
+    @State private var paywallFeature: Feature? = nil
+    @State private var gateMessage: String? = nil
+    @State private var showGateAlert = false
+
     // If present, we are editing an existing firearm
     let editingFirearm: Firearm?
 
@@ -49,6 +56,15 @@ struct AddFirearmView: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+
+            SheetHeaderBar(
+                title: editingFirearm == nil ? "Add Firearm" : "Edit Firearm",
+                onCancel: { dismiss() },
+                onSave: { save() },
+                saveEnabled: canSave
+            )
+
             Form {
                 Section("Basics") {
                     TextField("Brand (e.g., Springfield, Glock)", text: $brand)
@@ -93,16 +109,22 @@ struct AddFirearmView: View {
                     }
                 }
             }
-            .navigationTitle(editingFirearm == nil ? "Add Firearm" : "Edit Firearm")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Save") { save() }
-                        .disabled(!canSave)
-                }
-            }
+        }
+
+        .sheet(isPresented: $showPaywall) {
+            PayWallView(
+                title: "RoundCount Pro",
+                subtitle: gateMessage
+            )
+            .environmentObject(entitlements)
+        }
+
+        .alert("Upgrade to Pro", isPresented: $showGateAlert) {
+            Button("Not now", role: .cancel) {}
+            Button("See Pro") { showPaywall = true }
+        } message: {
+            Text(gateMessage ?? "This feature requires RoundCount Pro.")
+        }
     }
 
     private var canSave: Bool {
@@ -111,7 +133,45 @@ struct AddFirearmView: View {
         !caliber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    // MARK: - Free tier gating (hard stop)
+
+    private func currentFirearmCount() -> Int {
+        let descriptor = FetchDescriptor<Firearm>()
+        return (try? modelContext.fetchCount(descriptor)) ?? 0
+    }
+
+    private func gateCreateFirearm() -> GateResult {
+        if entitlements.isPro { return .allowed }
+
+        let count = currentFirearmCount()
+        if count >= entitlements.freeFirearmLimit {
+            return .limitReached(
+                .unlimitedFirearms,
+                message: "Free tier is limited to \(entitlements.freeFirearmLimit) firearm. Upgrade to Pro for unlimited firearms."
+            )
+        }
+        return .allowed
+    }
+
     private func save() {
+        // ✅ Editing is always allowed (does not affect limits)
+        if editingFirearm == nil {
+            // ✅ Creating new firearm must respect Free limit
+            switch gateCreateFirearm() {
+            case .allowed:
+                break
+            case .requiresPro(let feature):
+                paywallFeature = feature
+                showPaywall = true
+                return
+            case .limitReached(let feature, let message):
+                gateMessage = message
+                paywallFeature = feature
+                showGateAlert = true
+                return
+            }
+        }
+
         let b = brand.trimmingCharacters(in: .whitespacesAndNewlines)
         let m = model.trimmingCharacters(in: .whitespacesAndNewlines)
         let c = caliber.trimmingCharacters(in: .whitespacesAndNewlines)

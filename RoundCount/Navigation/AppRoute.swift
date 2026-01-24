@@ -8,6 +8,9 @@ enum AppRoute: Hashable {
 
     // Screens
     case analyticsDashboard
+    
+    // Ammo
+    case ammoDetail(PersistentIdentifier)
 
     // Details
     case firearmDetail(PersistentIdentifier)

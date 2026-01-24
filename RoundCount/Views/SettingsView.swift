@@ -12,6 +12,8 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
 
+    @State private var showPaywall = false
+
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
     }
@@ -21,111 +23,119 @@ struct SettingsView: View {
     }
 
     var body: some View {
-            List {
-                Section {
-                    settingsCard(title: "Account") {
-                        settingsRow(
-                            title: "Tier",
-                            value: entitlements.isPro ? "Pro" : "Free",
-                            systemImage: "person.crop.circle"
-                        )
+        List {
+            // Account
+            Section {
+                settingsCard(title: "Account") {
+                    settingsRow(
+                        title: "Tier",
+                        value: entitlements.isPro ? "Pro" : "Free",
+                        systemImage: "person.crop.circle"
+                    )
+
+                    if !entitlements.isPro {
+                        Button {
+                            showPaywall = true
+                        } label: {
+                            settingsRow(
+                                title: "Upgrade to Pro",
+                                value: "",
+                                systemImage: "star.circle"
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+            }
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
 
-                if Entitlements.allowBetaProToggle {
-                    Section {
-                        settingsCard(title: "Beta Tools") {
-                            Button {
-                                entitlements.setTier(entitlements.isPro ? .free : .pro)
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "sparkles")
-                                        .foregroundStyle(Brand.iconAccent(scheme))
+            // Beta Tools (internal testing only)
+            if Entitlements.allowBetaProToggle {
+                Section {
+                    settingsCard(title: "Beta Tools") {
+                        Button {
+                            entitlements.setTier(entitlements.isPro ? .free : .pro)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "sparkles")
+                                    .foregroundStyle(Brand.iconAccent(scheme))
 
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(entitlements.isPro
-                                             ? "Disable Pro Features (Beta)"
-                                             : "Enable Pro Features (Beta)")
-                                            .font(.headline)
-                                            .foregroundStyle(.primary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(entitlements.isPro
+                                         ? "Disable Pro Features (Beta)"
+                                         : "Enable Pro Features (Beta)")
+                                        .font(.headline)
+                                        .foregroundStyle(.primary)
 
-                                        Text("For internal testing only.")
-                                            .font(.footnote)
-                                            .foregroundStyle(.secondary)
-                                    }
-
-                                    Spacer()
-
-                                    Image(systemName: "chevron.right")
+                                    Text("For internal testing only.")
                                         .font(.footnote)
                                         .foregroundStyle(.secondary)
                                 }
-                                .padding(12)
-                                .surfaceCard(radius: Brand.Radius.m)
+
+                                Spacer()
+
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
                             }
-                            .buttonStyle(.plain)
+                            .padding(12)
+                            .surfaceCard(radius: Brand.Radius.m)
                         }
-                    }
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                }
-
-                Section {
-                    settingsCard(title: "About") {
-                        settingsRow(
-                            title: "Version",
-                            value: appVersion,
-                            systemImage: "number"
-                        )
-
-                        settingsRow(
-                            title: "Build",
-                            value: buildNumber,
-                            systemImage: "hammer"
-                        )
-                        Section {
-                            settingsCard(title: "About") {
-
-                                NavigationLink {
-                                    AboutView()
-                                } label: {
-                                    settingsRow(
-                                        title: "About RoundCount",
-                                        value: "",
-                                        systemImage: "info.circle"
-                                    )
-                                }
-                                .buttonStyle(.plain)
-
-                                settingsRow(
-                                    title: "Version",
-                                    value: appVersion,
-                                    systemImage: "number"
-                                )
-
-                                settingsRow(
-                                    title: "Build",
-                                    value: buildNumber,
-                                    systemImage: "hammer"
-                                )
-                            }
-                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(Brand.pageBackground(scheme))
-            .navigationTitle("Settings")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Done") { dismiss() }
+
+            // About
+            Section {
+                settingsCard(title: "About") {
+                    NavigationLink {
+                        AboutView()
+                    } label: {
+                        settingsRow(
+                            title: "About RoundCount",
+                            value: "",
+                            systemImage: "info.circle"
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    settingsRow(
+                        title: "Version",
+                        value: appVersion,
+                        systemImage: "number"
+                    )
+
+                    settingsRow(
+                        title: "Build",
+                        value: buildNumber,
+                        systemImage: "hammer"
+                    )
                 }
             }
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Brand.pageBackground(scheme))
+        .navigationTitle("Settings")
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Done") { dismiss() }
+            }
+        }
+        .sheet(isPresented: $showPaywall) {
+            PayWallView(
+                title: "RoundCount Pro",
+                subtitle: "Upgrade to unlock Pro features."
+            )
+            .environmentObject(entitlements)
+        }
+
     }
 
     // MARK: - Parent Card
@@ -162,10 +172,11 @@ struct SettingsView: View {
 
             Spacer()
 
-            Text(value)
-                .foregroundStyle(.secondary)
+            if !value.isEmpty {
+                Text(value)
+                    .foregroundStyle(.secondary)
+            }
 
-            // tiny alignment affordance
             Image(systemName: "chevron.right")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)

@@ -1,35 +1,41 @@
-//
-//  FeatureGating.swift
-//  RoundCount
-//
-//  Created by Alex Schaffer on 1/15/26.
-//
-
 import Foundation
-import Combine
 
 enum Feature: String, CaseIterable, Identifiable {
     case unlimitedFirearms
     case maintenanceTracking
     case advancedAnalytics
+    case firearmAnalytics
     case dataExport
     case ammoInventory
     case barcodeScan
     case sessionUpgrades
     case firearmSetups
+    case magazines
 
     var id: String { rawValue }
+
+    /// ✅ Only show features that exist in the shipped build
+    var isReleased: Bool {
+        switch self {
+        case .maintenanceTracking, .dataExport, .barcodeScan:
+            return false
+        default:
+            return true
+        }
+    }
 
     var title: String {
         switch self {
         case .unlimitedFirearms: return "Unlimited Firearms"
         case .maintenanceTracking: return "Maintenance Tracking"
-        case .advancedAnalytics: return "Advanced Stats"
+        case .advancedAnalytics: return "Analytics Dashboard"
+        case .firearmAnalytics: return "Firearm Analytics"
         case .dataExport: return "Export (CSV/PDF)"
         case .ammoInventory: return "Ammo Inventory"
         case .barcodeScan: return "Barcode Scanning"
         case .sessionUpgrades: return "Session Upgrades"
         case .firearmSetups: return "Firearm Setups & Gear"
+        case .magazines: return "Magazines"
         }
     }
 
@@ -40,7 +46,9 @@ enum Feature: String, CaseIterable, Identifiable {
         case .maintenanceTracking:
             return "Set round-count and time-based maintenance reminders."
         case .advancedAnalytics:
-            return "See deeper insights across firearms, ammo, and sessions."
+            return "See trends and breakdowns across all your sessions."
+        case .firearmAnalytics:
+            return "See trends, averages, and reliability stats for a specific firearm."
         case .dataExport:
             return "Export your firearms and sessions for backup or records."
         case .ammoInventory:
@@ -51,10 +59,13 @@ enum Feature: String, CaseIterable, Identifiable {
             return "Add photos, track malfunctions, and log total range time."
         case .firearmSetups:
             return "Create setups per firearm (optic/light/etc.) and track battery life."
+        case .magazines:
+            return "Save magazine capacities per firearm for faster round logging."
         }
     }
 }
 
+/// Keep GateResult as a TOP-LEVEL type (production friendly)
 enum GateResult {
     case allowed
     case requiresPro(Feature)
