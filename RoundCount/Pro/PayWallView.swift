@@ -6,6 +6,12 @@
 //  - Uses StoreKitManager for products/purchase/restore
 //  - Calls Entitlements.refreshFromStoreKit() after purchase/restore
 //
+//  App Review compliance (3.1.2):
+//  - Includes functional links to Privacy Policy + Terms of Use (Apple Standard EULA)
+//  - Includes required auto-renew disclosure text
+//  - Shows subscription name/price/length (via ProductRow + CTA period hint)
+//  - Includes Restore Purchases
+//
 
 import SwiftUI
 import StoreKit
@@ -13,11 +19,14 @@ import StoreKit
 struct PayWallView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var entitlements: Entitlements
-
     @EnvironmentObject private var store: StoreKitManager
 
     let title: String
     let subtitle: String?
+
+    // App Review required links
+    private let privacyURL = URL(string: "https://aschaffer8770.github.io/roundcount-privacy/")!
+    private let termsURL   = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
 
     @State private var selectedID: String? = nil
 
@@ -26,8 +35,14 @@ struct PayWallView: View {
     @State private var alertTitle = ""
     @State private var alertMessage = ""
 
+    /// Purchases must be functional in App Store builds.
+    /// Keep beta gating only for DEBUG builds.
     private var purchasesEnabled: Bool {
-        Entitlements.allowBetaProPurchase
+        #if DEBUG
+        return Entitlements.allowBetaProPurchase
+        #else
+        return true
+        #endif
     }
 
     var body: some View {
@@ -37,9 +52,11 @@ struct PayWallView: View {
             VStack(spacing: 12) {
                 featureList
 
+                #if DEBUG
                 if !purchasesEnabled {
                     purchasesDisabledBanner
                 }
+                #endif
 
                 Divider().opacity(0.6)
 
@@ -127,6 +144,7 @@ struct PayWallView: View {
         .surfaceCard()
     }
 
+    // DEBUG-only: avoid any suggestion to reviewers that purchasing is disabled
     private var purchasesDisabledBanner: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -237,12 +255,28 @@ struct PayWallView: View {
         .surfaceCard()
     }
 
+    // MARK: - Legal / Required Info
+
     private var legalRow: some View {
-        Text("Payments are charged to your Apple ID. Subscriptions renew unless canceled at least 24 hours before the end of the period.")
-            .font(.system(size: 11, weight: .medium))
+        VStack(spacing: 10) {
+            HStack(spacing: 14) {
+                Link("Privacy Policy", destination: privacyURL)
+                Link("Terms of Use", destination: termsURL)
+            }
+            .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-            .padding(.top, 2)
+
+            Text(legalDisclosureText)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.top, 2)
+    }
+
+    private var legalDisclosureText: String {
+        // Apple-required style disclosure (concise and safe)
+        "Payment will be charged to your Apple ID at confirmation of purchase. Subscriptions automatically renew unless canceled at least 24 hours before the end of the current period. Manage or cancel in App Store account settings."
     }
 
     // MARK: - Derived
@@ -262,30 +296,32 @@ struct PayWallView: View {
     }
 
     private var buttonTitle: String {
-        if entitlements.isPro {
-            return "You’re Pro ✅"
-        }
+        if entitlements.isPro { return "You’re Pro ✅" }
+        guard let p = selectedProduct else { return purchasesEnabled ? "Continue" : "Purchases Disabled" }
 
-        guard let p = selectedProduct else {
-            return purchasesEnabled ? "Continue" : "Purchases Disabled"
-        }
+        let period = (p.id == StoreKitManager.proYearlyID) ? " / year" :
+                     (p.id == StoreKitManager.proMonthlyID) ? " / month" : ""
 
-        return purchasesEnabled ? "Continue • \(p.displayPrice)" : "Purchases Disabled"
+        return purchasesEnabled ? "Continue • \(p.displayPrice)\(period)" : "Purchases Disabled"
     }
 
     // MARK: - Actions
 
     private func purchaseSelected() async {
-        
         guard !entitlements.isPro else {
             dismiss()
             return
         }
-        
+
         guard purchasesEnabled else {
+            #if DEBUG
             presentAlert("Purchases disabled", "Enable Entitlements.allowBetaProPurchase to test purchases.")
+            #else
+            presentAlert("Purchases unavailable", "Purchases are currently unavailable. Please try again later.")
+            #endif
             return
         }
+
         guard let product = selectedProduct else { return }
 
         let tx = await store.purchase(product)
@@ -298,7 +334,11 @@ struct PayWallView: View {
 
     private func restore() async {
         guard purchasesEnabled else {
+            #if DEBUG
             presentAlert("Purchases disabled", "Enable Entitlements.allowBetaProPurchase to test restores.")
+            #else
+            presentAlert("Restore unavailable", "Restoring purchases is currently unavailable. Please try again later.")
+            #endif
             return
         }
 
@@ -347,9 +387,9 @@ struct PayWallView: View {
     }
 
     private func productSubtitle(for product: Product) -> String {
-        if product.id == StoreKitManager.proMonthlyID { return "Renews monthly • Cancel anytime" }
-        if product.id == StoreKitManager.proYearlyID { return "Renews yearly • Cancel anytime" }
-        return "Plan"
+        if product.id == StoreKitManager.proMonthlyID { return "1 month • Auto-renews • Cancel anytime" }
+        if product.id == StoreKitManager.proYearlyID { return "1 year • Auto-renews • Cancel anytime" }
+        return "Auto-renewing subscription"
     }
 }
 
