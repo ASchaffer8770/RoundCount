@@ -1,10 +1,3 @@
-//
-//  RoundCountApp.swift
-//  RoundCount
-//
-//  Created by Alex Schaffer on 1/15/26.
-//
-
 import SwiftUI
 import SwiftData
 import UIKit
@@ -16,19 +9,13 @@ struct RoundCountApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootTabView()
+            AppRootView()
                 .tint(Brand.accent)
                 .environmentObject(entitlements)
                 .environmentObject(store)
                 .task {
-                    // ✅ Start listening for transaction updates ASAP
                     store.start()
-
-                    // ✅ Load products (for paywall UI)
                     await store.loadProducts()
-
-                    // ✅ Sync tier (only flips tier when allowBetaProPurchase == true,
-                    // unless allowBetaProToggle == true)
                     await entitlements.refreshFromStoreKit()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in

@@ -15,6 +15,7 @@
 
 import SwiftUI
 import StoreKit
+import UIKit
 
 struct PayWallView: View {
     @Environment(\.dismiss) private var dismiss
@@ -29,7 +30,7 @@ struct PayWallView: View {
     private let termsURL   = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
 
     @State private var selectedID: String? = nil
-
+    @State private var isRedeemingCode = false
     @State private var isLoading = true
     @State private var showAlert = false
     @State private var alertTitle = ""
@@ -223,7 +224,8 @@ struct PayWallView: View {
                 !purchasesEnabled ||
                 selectedProduct == nil ||
                 isLoading ||
-                store.purchaseState == .purchasing
+                store.purchaseState == .purchasing ||
+                isRedeemingCode
             )
             .buttonStyle(.borderedProminent)
 
@@ -239,17 +241,31 @@ struct PayWallView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
                 }
-                .disabled(!purchasesEnabled || store.purchaseState == .purchasing)
+                .disabled(!purchasesEnabled || store.purchaseState == .purchasing || isRedeemingCode)
                 .buttonStyle(.bordered)
 
-                Button { dismiss() } label: {
-                    Text("Not now")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
+                Button {
+                    Task { await redeemOfferCode() }
+                } label: {
+                    HStack {
+                        if isRedeemingCode { ProgressView().scaleEffect(0.9) }
+                        Text("Redeem Offer Code")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
                 }
+                .disabled(isLoading || store.purchaseState == .purchasing || isRedeemingCode)
                 .buttonStyle(.bordered)
             }
+
+            Button { dismiss() } label: {
+                Text("Not now")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.bordered)
         }
         .padding(12)
         .surfaceCard()
@@ -306,6 +322,34 @@ struct PayWallView: View {
     }
 
     // MARK: - Actions
+    
+    private func redeemOfferCode() async {
+        guard !isRedeemingCode else { return }
+
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first else {
+            presentAlert("Unavailable", "Could not open the code redemption sheet right now.")
+            return
+        }
+
+        isRedeemingCode = true
+        defer { isRedeemingCode = false }
+
+        do {
+            try await AppStore.presentOfferCodeRedeemSheet(in: scene)
+
+            // After the user redeems a code, sync and refresh entitlements.
+            try? await AppStore.sync()
+            await entitlements.refreshFromStoreKit()
+
+            if entitlements.isPro {
+                dismiss()
+            }
+        } catch {
+            presentAlert("Redemption failed", "Unable to open the offer code sheet. Please try again.")
+        }
+    }
 
     private func purchaseSelected() async {
         guard !entitlements.isPro else {

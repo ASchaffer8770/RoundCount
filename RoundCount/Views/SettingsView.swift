@@ -13,6 +13,7 @@ struct SettingsView: View {
     @Environment(\.colorScheme) private var scheme
 
     @State private var showPaywall = false
+    @State private var showAbout = false
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
@@ -40,7 +41,8 @@ struct SettingsView: View {
                             settingsRow(
                                 title: "Upgrade to Pro",
                                 value: "",
-                                systemImage: "star.circle"
+                                systemImage: "star.circle",
+                                showsChevron: true
                             )
                         }
                         .buttonStyle(.plain)
@@ -92,13 +94,14 @@ struct SettingsView: View {
             // About
             Section {
                 settingsCard(title: "About") {
-                    NavigationLink {
-                        AboutView()
+                    Button {
+                        showAbout = true
                     } label: {
                         settingsRow(
                             title: "About RoundCount",
                             value: "",
-                            systemImage: "info.circle"
+                            systemImage: "info.circle",
+                            showsChevron: false
                         )
                     }
                     .buttonStyle(.plain)
@@ -123,6 +126,9 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Brand.pageBackground(scheme))
         .navigationTitle("Settings")
+        .navigationDestination(isPresented: $showAbout) {
+                AboutView()
+            }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Done") { dismiss() }
@@ -161,7 +167,8 @@ struct SettingsView: View {
     private func settingsRow(
         title: String,
         value: String,
-        systemImage: String
+        systemImage: String,
+        showsChevron: Bool = false
     ) -> some View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
@@ -177,10 +184,12 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Image(systemName: "chevron.right")
-                .font(.footnote)
-                .foregroundStyle(.tertiary)
-                .opacity(0.55)
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+                    .opacity(0.55)
+            }
         }
         .padding(12)
         .surfaceCard(radius: Brand.Radius.m)

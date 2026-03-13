@@ -3,9 +3,17 @@ import SwiftUI
 struct RootTabView: View {
     @StateObject private var router = AppRouter()
 
+    let startAction: OnboardingCompletionAction?
+
+    @State private var hasHandledStartAction = false
+    @State private var showOnboardingAddFirearm = false
+
+    init(startAction: OnboardingCompletionAction? = nil) {
+        self.startAction = startAction
+    }
+
     var body: some View {
         TabView(selection: $router.selectedTab) {
-
             NavigationStack(path: router.pathBinding(for: .dashboard)) {
                 DashboardView()
                     .navigationDestination(for: AppRoute.self) { route in
@@ -52,5 +60,27 @@ struct RootTabView: View {
             .tag(AppTab.settings)
         }
         .environmentObject(router)
+        .sheet(isPresented: $showOnboardingAddFirearm) {
+            AddFirearmView()
+                .presentationDetents([.large])
+        }
+        .task {
+            guard !hasHandledStartAction else { return }
+            hasHandledStartAction = true
+
+            guard let startAction else { return }
+
+            switch startAction {
+            case .exploreApp:
+                break
+
+            case .addFirstFirearm:
+                router.selectedTab = .firearms
+
+                await MainActor.run {
+                    showOnboardingAddFirearm = true
+                }
+            }
+        }
     }
 }
