@@ -9,7 +9,6 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var entitlements: Entitlements
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
 
     @State private var showPaywall = false
@@ -129,11 +128,6 @@ struct SettingsView: View {
         .navigationDestination(isPresented: $showAbout) {
                 AboutView()
             }
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button("Done") { dismiss() }
-            }
-        }
         .sheet(isPresented: $showPaywall) {
             PayWallView(
                 title: "RoundCount Pro",

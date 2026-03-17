@@ -5,13 +5,5 @@
 //  Created by Alex Schaffer on 1/15/26.
 //
 
-import Testing
-@testable import RoundCount
-
-struct RoundCountTests {
-
-    @Test func example() async throws {
-        // Write your test here and use APIs like `#expect(...)` to check expected conditions.
-    }
-
-}
+// RoundCountTests.swift — entry point kept for historical reasons.
+// All tests live in their own focused files alongside this one.

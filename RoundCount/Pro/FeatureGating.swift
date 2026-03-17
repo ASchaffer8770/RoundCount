@@ -66,7 +66,7 @@ enum Feature: String, CaseIterable, Identifiable {
 }
 
 /// Keep GateResult as a TOP-LEVEL type (production friendly)
-enum GateResult {
+enum GateResult: Equatable {
     case allowed
     case requiresPro(Feature)
     case limitReached(Feature, message: String)

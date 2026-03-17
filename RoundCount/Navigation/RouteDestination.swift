@@ -34,9 +34,12 @@ struct RouteDestination: View {
                 missing("Firearm not found")
             }
 
-        case .sessionDetail(let sessionID):
-            // IMPORTANT: call your session detail screen using the ID
-            SessionDetailView(sessionID: sessionID)
+        case .sessionDetail(let pid):
+            if let session = modelContext.model(for: pid) as? SessionV2 {
+                SessionDetailView(session: session)
+            } else {
+                missing("Session not found")
+            }
         }
     }
 

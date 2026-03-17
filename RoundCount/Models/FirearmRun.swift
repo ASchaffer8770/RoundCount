@@ -28,18 +28,19 @@ final class FirearmRun {
     var endedAt: Date?
 
     var rounds: Int
-    var malfunctionsCount: Int
     var notes: String?
 
     @Relationship var selectedMagazine: FirearmMagazine?
     @Relationship(deleteRule: .cascade) var malfunctions: [RunMalfunction] = []
+
+    /// Derived from the `malfunctions` relationship — always in sync, never drifts.
+    var malfunctionsCount: Int { malfunctions.reduce(0) { $0 + $1.count } }
 
     init(
         firearm: Firearm,
         startedAt: Date,
         endedAt: Date? = nil,
         rounds: Int = 0,
-        malfunctionsCount: Int = 0,
         notes: String? = nil,
         session: SessionV2,
         selectedMagazine: FirearmMagazine? = nil
@@ -49,7 +50,6 @@ final class FirearmRun {
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.rounds = rounds
-        self.malfunctionsCount = malfunctionsCount
         self.notes = notes
         self.session = session
         self.selectedMagazine = selectedMagazine

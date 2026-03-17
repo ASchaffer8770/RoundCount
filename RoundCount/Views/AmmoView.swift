@@ -380,7 +380,9 @@ struct AmmoView: View {
         do {
             fetchedRuns = try modelContext.fetch(descriptor)
         } catch {
+            #if DEBUG
             print("❌ Ammo dashboard fetch runs failed: \(error)")
+            #endif
             dashTotals = .init(rounds: 0, malfunctions: 0, runs: 0)
             dashRows = []
             return

@@ -9,7 +9,6 @@ import SwiftUI
 import SwiftData
 import UIKit
 import PhotosUI
-import Combine
 
 // MARK: - ViewModel (SwiftData-backed)
 
@@ -153,7 +152,6 @@ final class LiveSessionVM: ObservableObject {
             startedAt: Date(),
             endedAt: nil,
             rounds: 0,
-            malfunctionsCount: 0,
             notes: nil,
             session: s,
             selectedMagazine: firearm.magazines.sorted(by: { $0.capacity < $1.capacity }).first
@@ -183,7 +181,6 @@ final class LiveSessionVM: ObservableObject {
             startedAt: Date(),
             endedAt: nil,
             rounds: 0,
-            malfunctionsCount: 0,
             notes: nil,
             session: s,
             selectedMagazine: prior.selectedMagazine
@@ -261,8 +258,6 @@ final class LiveSessionVM: ObservableObject {
             modelContext.insert(m)
             run.malfunctions.append(m)
         }
-
-        run.malfunctionsCount = max(0, run.malfunctionsCount + delta)
 
         // ✅ Save deferred
         scheduleSave(modelContext)

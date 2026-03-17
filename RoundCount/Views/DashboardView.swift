@@ -204,7 +204,7 @@ struct DashboardView: View {
 
                 if let s = lastActivitySession {
                     Button {
-                        go(.sessionDetail(s.id))
+                        go(.sessionDetail(s.persistentModelID))
                     } label: {
                         StatCard(
                             title: "Last activity",
@@ -318,7 +318,7 @@ struct DashboardView: View {
 
     private func liveActivityRow(row: LiveSessionRowVM) -> some View {
         Button {
-            goToSession(row.id)
+            goToSession(row)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -386,25 +386,18 @@ struct DashboardView: View {
 
     private func goToLastActivity() {
         guard let s = lastActivitySession else { return }
-        go(.sessionDetail(s.id))
+        go(.sessionDetail(s.persistentModelID))
     }
 
-    private func goToSession(_ id: UUID) {
-        go(.sessionDetail(id))
+    private func goToSession(_ row: LiveSessionRowVM) {
+        go(.sessionDetail(row.persistentModelID))
     }
+
 
     // MARK: - Gating
 
     private func gateAddFirearm() -> GateResult {
-        if entitlements.isPro { return .allowed }
-
-        if firearms.count >= entitlements.freeFirearmLimit {
-            return .limitReached(
-                .unlimitedFirearms,
-                message: "Free tier is limited to \(entitlements.freeFirearmLimit) firearms. Upgrade to Pro for unlimited firearms."
-            )
-        }
-        return .allowed
+        entitlements.gateAddFirearm(currentCount: firearms.count)
     }
 
     private func gateOpenAnalytics() {
@@ -423,6 +416,7 @@ struct DashboardView: View {
 
 private struct LiveSessionRowVM: Identifiable {
     let id: UUID
+    let persistentModelID: PersistentIdentifier
     let title: String
     let dateText: String
     let rounds: Int
@@ -432,6 +426,7 @@ private struct LiveSessionRowVM: Identifiable {
 
     init(from s: SessionV2) {
         id = s.id
+        persistentModelID = s.persistentModelID
         rounds = s.totalRounds
         malfunctions = s.totalMalfunctions
         minutes = max(1, s.durationSeconds / 60)

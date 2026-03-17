@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 import StoreKit
 
 @MainActor
@@ -39,17 +38,16 @@ final class StoreKitManager: ObservableObject {
     }
 
     func loadProducts() async {
-        print("🧾 StoreKit: loading products for ids:", productIDs)
-
         do {
             let fetched = try await Product.products(for: productIDs)
-
-            print("🧾 StoreKit: fetched count =", fetched.count)
-            print("🧾 StoreKit: fetched ids =", fetched.map(\.id))
-
             products = fetched.sorted(by: { $0.displayName < $1.displayName })
+            #if DEBUG
+            print("🧾 StoreKit: fetched \(fetched.count) product(s):", fetched.map(\.id))
+            #endif
         } catch {
-            print("❌ loadProducts failed: \(error)")
+            #if DEBUG
+            print("❌ StoreKit loadProducts failed: \(error)")
+            #endif
             products = []
         }
     }
@@ -85,7 +83,11 @@ final class StoreKitManager: ObservableObject {
 
     func restorePurchases() async {
         do { try await AppStore.sync() }
-        catch { print("❌ restore failed: \(error)") }
+        catch {
+            #if DEBUG
+            print("❌ StoreKit restore failed: \(error)")
+            #endif
+        }
     }
 
     private func listenForTransactions() async {
@@ -94,7 +96,9 @@ final class StoreKitManager: ObservableObject {
                 let tx = try checkVerified(result)
                 await tx.finish()
             } catch {
-                print("❌ Transaction update failed verification: \(error)")
+                #if DEBUG
+                print("❌ StoreKit transaction verification failed: \(error)")
+                #endif
             }
         }
     }

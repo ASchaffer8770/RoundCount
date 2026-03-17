@@ -28,7 +28,9 @@ enum PhotoMaintenance {
 
         if deleted > 0 {
             try? modelContext.save()
+            #if DEBUG
             print("🧹 Purged corrupt SessionPhoto records:", deleted)
+            #endif
         }
     }
 }

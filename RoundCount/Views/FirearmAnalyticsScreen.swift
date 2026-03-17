@@ -16,16 +16,40 @@ struct FirearmAnalyticsScreen: View {
 
     @State private var range: AnalyticsTimeRange = .days90
 
-    @State private var totals: TotalsSummary = .init(rounds: 0, durationSeconds: 0, malfunctions: 0)
-    @State private var points: [ChartPoint] = []
-
-    // “premium extras”
-    @State private var sessionsCount: Int = 0
-    @State private var avgRoundsPerSession: Int = 0
-    @State private var lastSessionDate: Date? = nil
-
-    // Source of truth: runs for this firearm
     @Query private var runs: [FirearmRun]
+
+    // MARK: - Derived
+    // Computed from @Query + range so they stay current whenever any run changes.
+
+    private var filteredRuns: [FirearmRun] {
+        AnalyticsService.filteredRuns(runs, range: range)
+    }
+
+    private var totals: TotalsSummary {
+        AnalyticsService.totals(filteredRuns)
+    }
+
+    private var sessionsCount: Int {
+        Set(filteredRuns.map(\.session.id)).count
+    }
+
+    private var avgRoundsPerSession: Int {
+        sessionsCount > 0 ? Int(round(Double(totals.rounds) / Double(sessionsCount))) : 0
+    }
+
+    private var lastSessionDate: Date? {
+        filteredRuns.first?.session.startedAt
+    }
+
+    private var points: [ChartPoint] {
+        if range == .week || range == .days30 {
+            return AnalyticsService.roundsByDay(filteredRuns)
+                .map { ChartPoint(x: $0.day, y: Double($0.rounds)) }
+        } else {
+            return AnalyticsService.roundsByWeek(filteredRuns)
+                .map { ChartPoint(x: $0.startOfWeek, y: Double($0.rounds)) }
+        }
+    }
 
     init(title: String, firearmId: UUID) {
         self.title = title
@@ -51,10 +75,6 @@ struct FirearmAnalyticsScreen: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { recompute() }
-        .onChange(of: range) { _, _ in recompute() }
-        .onChange(of: runs.count) { _, _ in recompute() }
-        .onChange(of: runs.first?.id) { _, _ in recompute() }
     }
 
     private var contentList: some View {
@@ -248,86 +268,4 @@ struct FirearmAnalyticsScreen: View {
         return "All time"
     }
 
-    private func recompute() {
-        let now = Date()
-        let cal = Calendar.current
-        let start = range.startDate(reference: now, calendar: cal)
-
-        // Filter runs by range
-        var filtered: [FirearmRun] = []
-        filtered.reserveCapacity(runs.count)
-        if let start {
-            for r in runs where r.startedAt >= start {
-                filtered.append(r)
-            }
-        } else {
-            filtered = runs
-        }
-
-        // Totals
-        var rounds = 0
-        var durationSeconds = 0
-        var malfunctions = 0
-
-        // Unique sessions
-        var sessionIDs: Set<UUID> = []
-        sessionIDs.reserveCapacity(filtered.count)
-
-        for r in filtered {
-            rounds += r.rounds
-            durationSeconds += r.durationSeconds
-            malfunctions += r.malfunctionsCount
-            sessionIDs.insert(r.session.id)
-        }
-
-        totals = TotalsSummary(rounds: rounds, durationSeconds: durationSeconds, malfunctions: malfunctions)
-        sessionsCount = sessionIDs.count
-        avgRoundsPerSession = sessionsCount > 0 ? Int(round(Double(rounds) / Double(sessionsCount))) : 0
-
-        // Last session date
-        lastSessionDate = filtered.first?.session.startedAt
-
-        // Trend buckets
-        if range == .week || range == .days30 {
-            let buckets = roundsByDay(filtered, calendar: cal)
-            points = buckets.map { ChartPoint(x: $0.day, y: Double($0.rounds)) }
-        } else {
-            let buckets = roundsByWeek(filtered, calendar: cal)
-            points = buckets.map { ChartPoint(x: $0.weekStart, y: Double($0.rounds)) }
-        }
-    }
-
-    private struct DayBucket {
-        let day: Date
-        let rounds: Int
-    }
-
-    private func roundsByDay(_ runs: [FirearmRun], calendar: Calendar) -> [DayBucket] {
-        var map: [Date: Int] = [:]
-        for r in runs {
-            let day = calendar.startOfDay(for: r.startedAt)
-            map[day, default: 0] += r.rounds
-        }
-        return map
-            .map { DayBucket(day: $0.key, rounds: $0.value) }
-            .sorted { $0.day < $1.day }
-    }
-
-    private struct WeekBucket {
-        let weekStart: Date
-        let rounds: Int
-    }
-
-    private func roundsByWeek(_ runs: [FirearmRun], calendar: Calendar) -> [WeekBucket] {
-        var map: [Date: Int] = [:]
-        for r in runs {
-            let day = calendar.startOfDay(for: r.startedAt)
-            let comps = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: day)
-            guard let weekStart = calendar.date(from: comps) else { continue }
-            map[weekStart, default: 0] += r.rounds
-        }
-        return map
-            .map { WeekBucket(weekStart: $0.key, rounds: $0.value) }
-            .sorted { $0.weekStart < $1.weekStart }
-    }
 }

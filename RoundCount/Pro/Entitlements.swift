@@ -1,5 +1,4 @@
 import SwiftUI
-import Combine
 import StoreKit
 
 enum UserTier: String, Codable {
@@ -73,4 +72,17 @@ final class Entitlements: ObservableObject {
 
     // MARK: - Limits (Free tier)
     var freeFirearmLimit: Int { 1 }
+
+    // MARK: - Shared gate helpers
+
+    func gateAddFirearm(currentCount: Int) -> GateResult {
+        if isPro { return .allowed }
+        if currentCount >= freeFirearmLimit {
+            return .limitReached(
+                .unlimitedFirearms,
+                message: "Free tier is limited to \(freeFirearmLimit) firearms. Upgrade to Pro for unlimited firearms."
+            )
+        }
+        return .allowed
+    }
 }

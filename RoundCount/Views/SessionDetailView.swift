@@ -10,73 +10,50 @@ import SwiftData
 import UIKit
 
 struct SessionDetailView: View {
-    let sessionID: UUID
-
-    // Give SwiftData real sorts so Element inference is stable
-    @Query(sort: \SessionV2.startedAt, order: .reverse)
-    private var sessions: [SessionV2]
-
-    @Query(sort: \SessionPhoto.createdAt, order: .reverse)
-    private var allPhotos: [SessionPhoto]
+    let session: SessionV2
 
     @State private var selectedPhoto: SessionPhoto? = nil
 
-    private var session: SessionV2? {
-        sessions.first(where: { $0.id == sessionID })
-    }
-
-    /// Photos that belong to any run in this session.
+    /// Photos for this session, sourced directly from the run relationships.
     private var sessionPhotos: [SessionPhoto] {
-        guard let s = session else { return [] }
-        let runIDs = Set(s.runs.map(\.id))
-        return allPhotos
-            .filter { runIDs.contains($0.run.id) }
+        session.runs
+            .flatMap(\.photos)
             .sorted(by: { $0.createdAt > $1.createdAt })
     }
 
     private var sessionRuns: [FirearmRun] {
-        (session?.runs ?? []).sorted { $0.startedAt < $1.startedAt }
+        session.runs.sorted { $0.startedAt < $1.startedAt }
     }
 
     var body: some View {
-        Group {
-            if let s = session {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        summaryCard(session: s)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                summaryCard(session: session)
 
-                        notesCard(notes: s.notes)
+                notesCard(notes: session.notes)
 
-                        photosCard(photos: sessionPhotos)
+                photosCard(photos: sessionPhotos)
 
-                        runsCard(runs: sessionRuns)
-                    }
-                    .padding(16)
-                }
-                .navigationTitle("Session")
-                .navigationBarTitleDisplayMode(.inline)
-            } else {
-                ContentUnavailableView(
-                    "Session not found",
-                    systemImage: "timer",
-                    description: Text("This session may have been deleted.")
-                )
+                runsCard(runs: sessionRuns)
             }
+            .padding(16)
         }
+        .navigationTitle("Session")
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $selectedPhoto) { p in
-                PhotoPreview(photo: p)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button("Done") { selectedPhoto = nil }
-                        }
+            PhotoPreview(photo: p)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Done") { selectedPhoto = nil }
                     }
+                }
         }
     }
 
     // MARK: - Cards
 
     private func summaryCard(session s: SessionV2) -> some View {
-        let duration = durationSeconds(session: s)
+        let duration = s.endedAt.map { max(0, Int($0.timeIntervalSince(s.startedAt))) } ?? 0
         let totalRounds = sessionRuns.reduce(0) { $0 + $1.rounds }
         let totalMalf = sessionRuns.reduce(0) { $0 + $1.malfunctionsCount }
 
@@ -165,13 +142,6 @@ struct SessionDetailView: View {
 
     // MARK: - Helpers
 
-    private func durationSeconds(session s: SessionV2) -> Int {
-        if let end = s.endedAt {
-            return max(0, Int(end.timeIntervalSince(s.startedAt)))
-        }
-        return 0
-    }
-
     private func row(_ left: String, _ right: String) -> some View {
         HStack {
             Text(left).foregroundStyle(.secondary)
@@ -211,7 +181,9 @@ private struct PhotoThumb: View {
 
     var body: some View {
         Group {
-            if let img = UIImage(data: photo.imageData) {
+            // Prefer the stored thumbnail to avoid decoding a full JPEG on the main thread.
+            let data = photo.thumbnailData ?? photo.imageData
+            if let img = UIImage(data: data) {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFill()
@@ -309,7 +281,6 @@ private struct RunSummaryCard: View {
 }
 
 #Preview {
-    NavigationStack {
-        SessionDetailView(sessionID: UUID())
-    }
+    // Preview requires a live ModelContainer; open SessionDetailView from RouteDestination in practice.
+    Text("SessionDetailView — use RouteDestination for preview")
 }

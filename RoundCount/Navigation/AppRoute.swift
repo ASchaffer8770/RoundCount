@@ -14,5 +14,5 @@ enum AppRoute: Hashable {
 
     // Details
     case firearmDetail(PersistentIdentifier)
-    case sessionDetail(UUID) // migrate to PersistentIdentifier later
+    case sessionDetail(PersistentIdentifier)
 }

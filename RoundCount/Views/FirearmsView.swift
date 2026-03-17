@@ -230,16 +230,7 @@ struct FirearmsView: View {
     }
 
     private func gateAddFirearm() -> GateResult {
-        if entitlements.isPro { return .allowed }
-
-        if firearms.count >= entitlements.freeFirearmLimit {
-            return .limitReached(
-                .unlimitedFirearms,
-                message: "Free tier is limited to \(entitlements.freeFirearmLimit) firearms. Upgrade to Pro for unlimited firearms."
-            )
-        }
-
-        return .allowed
+        entitlements.gateAddFirearm(currentCount: firearms.count)
     }
 
     // MARK: - Delete (SessionV2 via FirearmRun)
@@ -300,7 +291,9 @@ struct FirearmsView: View {
         )
         do { return try modelContext.fetch(descriptor) }
         catch {
+            #if DEBUG
             print("❌ fetchRuns failed: \(error)")
+            #endif
             return []
         }
     }
@@ -311,7 +304,9 @@ struct FirearmsView: View {
         )
         do { return try modelContext.fetch(descriptor).first }
         catch {
+            #if DEBUG
             print("❌ fetchSession failed: \(error)")
+            #endif
             return nil
         }
     }

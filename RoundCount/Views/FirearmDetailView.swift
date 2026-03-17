@@ -38,7 +38,7 @@ struct FirearmDetailView: View {
     @State private var showFirearmAnalyticsSheet = false
 
     // Default = last 30 days
-    @State private var range: FirearmDetailDateRange = .days30
+    @State private var range: AnalyticsTimeRange = .days30
 
     init(firearm: Firearm) {
         self.firearm = firearm
@@ -63,7 +63,7 @@ struct FirearmDetailView: View {
     }
 
     private var magsCount: Int { magazinesForFirearm.count }
-    private var rangeStart: Date? { range.startDate(relativeToNow: Date()) }
+    private var rangeStart: Date? { range.startDate() }
 
     /// Unique SessionV2s that include this firearm (via FirearmRun.session)
     private var liveSessionsForFirearm: [SessionV2] {
@@ -246,7 +246,7 @@ struct FirearmDetailView: View {
                 .font(.headline)
 
             Picker("Range", selection: $range) {
-                ForEach(FirearmDetailDateRange.allCases) { r in
+                ForEach(AnalyticsTimeRange.allCases) { r in
                     Text(r.title).tag(r)
                 }
             }
@@ -428,7 +428,7 @@ struct FirearmDetailView: View {
         let malfs = s.totalMalfunctions
         let minutes = max(1, s.durationSeconds / 60)
 
-        return NavigationLink(value: AppRoute.sessionDetail(s.id)) {
+        return NavigationLink(value: AppRoute.sessionDetail(s.persistentModelID)) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("\(rounds) rounds")
@@ -479,45 +479,6 @@ struct FirearmDetailView: View {
             Text(title)
             Spacer()
             Text(value).foregroundStyle(.secondary)
-        }
-    }
-}
-
-// MARK: - Date Range (shared)
-
-private enum FirearmDetailDateRange: String, CaseIterable, Identifiable {
-    case week
-    case days30
-    case days90
-    case ytd
-    case all
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .week: return "1W"
-        case .days30: return "30D"
-        case .days90: return "90D"
-        case .ytd: return "YTD"
-        case .all: return "All"
-        }
-    }
-
-    func startDate(relativeToNow now: Date) -> Date? {
-        let cal = Calendar.current
-        switch self {
-        case .week:
-            return cal.date(byAdding: .day, value: -7, to: now)
-        case .days30:
-            return cal.date(byAdding: .day, value: -30, to: now)
-        case .days90:
-            return cal.date(byAdding: .day, value: -90, to: now)
-        case .ytd:
-            let year = cal.component(.year, from: now)
-            return cal.date(from: DateComponents(year: year, month: 1, day: 1))
-        case .all:
-            return nil
         }
     }
 }

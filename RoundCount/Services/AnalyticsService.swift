@@ -155,3 +155,62 @@ extension AnalyticsService {
             .sorted { $0.day < $1.day }
     }
 }
+
+// MARK: - Run-level analytics (single-firearm screens)
+
+extension AnalyticsService {
+
+    static func filteredRuns(
+        _ runs: [FirearmRun],
+        range: AnalyticsTimeRange,
+        reference: Date = .now,
+        calendar: Calendar = .current
+    ) -> [FirearmRun] {
+        guard let start = range.startDate(reference: reference, calendar: calendar) else {
+            return runs
+        }
+        return runs.filter { $0.startedAt >= start }
+    }
+
+    static func totals(_ runs: [FirearmRun]) -> TotalsSummary {
+        var rounds = 0
+        var duration = 0
+        var malfunctions = 0
+        for r in runs {
+            rounds += r.rounds
+            duration += r.durationSeconds
+            malfunctions += r.malfunctionsCount
+        }
+        return TotalsSummary(rounds: rounds, durationSeconds: duration, malfunctions: malfunctions)
+    }
+
+    static func roundsByDay(
+        _ runs: [FirearmRun],
+        calendar: Calendar = .current
+    ) -> [DayBucket] {
+        var map: [Date: Int] = [:]
+        for r in runs {
+            let day = calendar.startOfDay(for: r.startedAt)
+            map[day, default: 0] += r.rounds
+        }
+        return map
+            .map { DayBucket(day: $0.key, rounds: $0.value) }
+            .sorted { $0.day < $1.day }
+    }
+
+    static func roundsByWeek(
+        _ runs: [FirearmRun],
+        calendar: Calendar = .current
+    ) -> [RoundsBucket] {
+        var map: [Date: Int] = [:]
+        for r in runs {
+            let day = calendar.startOfDay(for: r.startedAt)
+            let comps = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: day)
+            guard let weekStart = calendar.date(from: comps) else { continue }
+            map[weekStart, default: 0] += r.rounds
+        }
+        return map
+            .map { RoundsBucket(startOfWeek: $0.key, rounds: $0.value) }
+            .sorted { $0.startOfWeek < $1.startOfWeek }
+    }
+}
