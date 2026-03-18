@@ -10,22 +10,23 @@ The app offers a **Free tier** for casual shooters and a **Pro tier** for compet
 
 ### Free
 - Track firearms (brand, model, caliber, class)
-- Log live or manual range sessions
+- Log live range sessions with time tracking
 - Track total rounds per firearm
 - Review session history per firearm
 - Local-only storage (no accounts, no sync)
 
 ### Pro
-- Live timed sessions (Session v2)
-- Session photos (targets / malfunctions)
+- Live timed sessions with run-by-run logging
 - Malfunction tracking (categorized + totals)
 - Total range time per session
 - Firearm setups (optic / light / gear configurations)
-- Session → Setup linkage
+- Session → setup linkage
 - Reliability & usage analytics
+- Ammo inventory tracking with auto-decrement and replenishment prompts
+- UPC barcode scanning to auto-fill ammo details
 - Branded UI with subtle neon accent cards
 
-> **Privacy-first:** All data is stored locally on-device.  
+> **Privacy-first:** All data is stored locally on-device.
 > No accounts. No cloud. No tracking. Ever.
 
 ---
@@ -52,6 +53,38 @@ Analytics are computed from **session snapshots** to ensure performance, accurac
 
 ---
 
+## 📦 Ammo Inventory (Pro)
+
+Track how many rounds you have on hand for any ammo in your library.
+
+- **Opt-in per product** — enable inventory tracking individually; non-tracked ammo is unaffected
+- **Auto-decrement** — rounds are automatically deducted when you end a live session
+- **Replenishment prompts** — if a session would put an ammo below zero, RoundCount asks if you picked up more at the range before finalizing
+- **Adjust stock anytime** — add or remove rounds manually from the ammo detail view
+- **Inventory summary** — the Ammo tab header shows total rounds on hand across all tracked products (Pro)
+
+---
+
+## 📷 Barcode Scanning (Pro)
+
+Scan any factory ammo box UPC to auto-fill product details when adding ammo to your library.
+
+- Looks up caliber, grain weight, bullet type, brand, quantity per box, and case material
+- Results are cached on-device for instant re-scans
+- Falls back to manual entry if a barcode isn't recognized
+
+---
+
+## 🧭 App Walkthrough
+
+First-time users are guided through the app with **coach mark overlays** — contextual tooltips that highlight key UI elements and explain the workflow for each section.
+
+- Covers: Dashboard, Live Session (3 steps), Ammo, and Firearms tabs
+- Progress is saved per-sequence; each sequence only plays once
+- Can be replayed anytime from **Settings → Replay App Walkthrough**
+
+---
+
 ## 🧱 Tech Stack
 
 - **Language:** Swift
@@ -66,12 +99,9 @@ Analytics are computed from **session snapshots** to ensure performance, accurac
 
 ## 📌 Project Status
 
-- **Current version:** `0.9.0 (Build 1)`
-- **Status:** Internal TestFlight
-- **Target public v1.0:** ~March 15, 2026
-
-The core V1 feature set is implemented.  
-Current work is focused on **UX polish, reliability fixes, analytics trust, and TestFlight feedback** ahead of public launch.
+- **Current version:** `1.2`
+- **Status:** Active development / TestFlight
+- **Public release:** Live on App Store
 
 ---
 
@@ -105,25 +135,33 @@ Current work is focused on **UX polish, reliability fixes, analytics trust, and 
 
 ---
 
-### 🟡 Phase 3 — Analytics & Reliability (In Progress)
+### ✅ Phase 3 — Analytics & Reliability (Complete)
 - [x] Dashboard analytics
 - [x] Per-firearm analytics
 - [x] Time-range filtering
 - [x] Snapshot-based analytics engine
 - [x] Reliability polish & validation
-- [ ] Performance tuning
 
 ---
 
-### 🔜 Phase 4 — Maintenance & Inventory
+### ✅ Phase 4 — Inventory & UX (Complete)
+- [x] Ammo inventory tracking (opt-in, per-product)
+- [x] Auto-decrement on session end
+- [x] Replenishment prompt when stock runs out
+- [x] UPC barcode scanning with on-device caching
+- [x] Coach mark onboarding walkthrough
+- [x] Walkthrough replay in Settings
+
+---
+
+### 🔜 Phase 5 — Maintenance & Export
 - [ ] Maintenance tracking (round-based + time-based)
 - [ ] Gear battery lifecycle tracking
-- [ ] Ammo inventory integration
 - [ ] CSV / PDF export
 
 ---
 
-### 🔮 Phase 5 — Target Analysis (Future / R&D)
+### 🔮 Phase 6 — Target Analysis (Future / R&D)
 - [ ] Target photo analysis
 - [ ] Grouping pattern detection
 - [ ] Conservative, non-prescriptive technique insights
@@ -141,7 +179,7 @@ Current work is focused on **UX polish, reliability fixes, analytics trust, and 
 
 ## 🚧 Disclaimer
 
-RoundCount is intended for **training and logging purposes only**.  
+RoundCount is intended for **training and logging purposes only**.
 It does **not** provide firearms instruction, safety guidance, or tactical advice.
 
 ---
