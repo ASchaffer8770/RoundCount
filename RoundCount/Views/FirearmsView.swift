@@ -15,6 +15,7 @@ struct FirearmsView: View {
     @Environment(\.colorScheme) private var scheme
     @EnvironmentObject private var entitlements: Entitlements
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var coachMarkManager: CoachMarkManager
 
     @Query(sort: \Firearm.createdAt, order: .reverse)
     private var firearms: [Firearm]
@@ -42,6 +43,7 @@ struct FirearmsView: View {
         .scrollContentBackground(.hidden)
         .background(Brand.pageBackground(scheme))
         .navigationTitle("Firearms")
+        .onAppear { coachMarkManager.startIfNeeded(.firearms) }
 
         // Sheets / Alerts
         .sheet(isPresented: $showAdd) {
@@ -129,6 +131,7 @@ struct FirearmsView: View {
                 .surfaceCard(radius: Brand.Radius.m)
             }
             .buttonStyle(.plain)
+            .coachMarkAnchor(id: "firearms.add")
         }
         .padding(14)
         .accentCard(radius: Brand.Radius.l)

@@ -6,6 +6,7 @@ import UIKit
 struct RoundCountApp: App {
     @StateObject private var entitlements = Entitlements()
     @StateObject private var store = StoreKitManager()
+    @StateObject private var coachMarkManager = CoachMarkManager()
 
     var body: some Scene {
         WindowGroup {
@@ -13,6 +14,7 @@ struct RoundCountApp: App {
                 .tint(Brand.accent)
                 .environmentObject(entitlements)
                 .environmentObject(store)
+                .environmentObject(coachMarkManager)
                 .task {
                     store.start()
                     await store.loadProducts()
@@ -33,7 +35,8 @@ struct RoundCountApp: App {
             GearItem.self,
             SessionV2.self,
             AmmoProduct.self,
-            SessionPhoto.self
+            SessionPhoto.self,
+            UPCLookupCache.self
         ])
     }
 }

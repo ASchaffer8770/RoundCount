@@ -17,7 +17,7 @@ enum Feature: String, CaseIterable, Identifiable {
     /// ✅ Only show features that exist in the shipped build
     var isReleased: Bool {
         switch self {
-        case .maintenanceTracking, .dataExport, .barcodeScan:
+        case .maintenanceTracking, .dataExport:
             return false
         default:
             return true

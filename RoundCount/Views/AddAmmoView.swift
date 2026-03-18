@@ -7,13 +7,17 @@
 
 import SwiftUI
 import SwiftData
+import VisionKit
 
 struct AddAmmoView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var scheme
+    @EnvironmentObject private var entitlements: Entitlements
 
     let editingAmmo: AmmoProduct?
+
+    @State private var showPaywall = false
 
     @State private var brand: String = ""
     @State private var productLine: String = ""
@@ -24,6 +28,20 @@ struct AddAmmoView: View {
     @State private var quantityPerBoxText: String = ""
     @State private var caseMaterial: String = ""
     @State private var notes: String = ""
+
+    // Barcode
+    @State private var scannedUPC: String = ""
+    @State private var showScanner = false
+    @State private var lookupStatus: LookupStatus = .idle
+
+    private enum LookupStatus {
+        case idle
+        case loading
+        case cached           // instant hit from local cache
+        case success          // live network hit
+        case partialSuccess   // found product but couldn't parse ammo details
+        case failure(String)
+    }
 
     init(editingAmmo: AmmoProduct? = nil) {
         self.editingAmmo = editingAmmo
@@ -42,7 +60,6 @@ struct AddAmmoView: View {
     var body: some View {
         VStack(spacing: 0) {
 
-            // ✅ Sheet header (no NavigationStack needed)
             SheetHeaderBar(
                 title: editingAmmo == nil ? "Add Ammo" : "Edit Ammo",
                 onCancel: { dismiss() },
@@ -51,6 +68,18 @@ struct AddAmmoView: View {
             )
 
             Form {
+                // Barcode section — add mode only
+                if editingAmmo == nil {
+                    Section {
+                        scanRow
+                        if !scannedUPC.isEmpty {
+                            upcRow
+                        }
+                    } footer: {
+                        lookupFooter
+                    }
+                }
+
                 Section("Core") {
                     TextField("Brand (e.g., CCI, Federal)", text: $brand)
                         .textInputAutocapitalization(.words)
@@ -90,9 +119,148 @@ struct AddAmmoView: View {
             }
             .scrollContentBackground(.hidden)
         }
-        // ✅ matches your app background styling
         .background(Brand.pageBackground(scheme))
+        .sheet(isPresented: $showScanner) {
+            BarcodeScannerSheet { upc in
+                scannedUPC = upc
+                performLookup(upc: upc)
+            }
+        }
+        .sheet(isPresented: $showPaywall) {
+            PayWallView(title: "RoundCount Pro", subtitle: nil)
+                .environmentObject(entitlements)
+        }
     }
+
+    // MARK: - Scan Section Subviews
+
+    @ViewBuilder
+    private var scanRow: some View {
+        if case .loading = lookupStatus {
+            HStack(spacing: 10) {
+                ProgressView()
+                Text("Looking up barcode…")
+                    .foregroundStyle(.secondary)
+            }
+        } else if DataScannerViewController.isSupported {
+            Button {
+                if entitlements.isPro {
+                    showScanner = true
+                } else {
+                    showPaywall = true
+                }
+            } label: {
+                Label(
+                    scannedUPC.isEmpty ? "Scan Barcode" : "Scan Again",
+                    systemImage: "barcode.viewfinder"
+                )
+                .foregroundStyle(Brand.accent)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var upcRow: some View {
+        HStack {
+            Image(systemName: upcRowIcon)
+                .foregroundStyle(upcRowIconColor)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("UPC: \(scannedUPC)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Clear") {
+                scannedUPC = ""
+                lookupStatus = .idle
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private var upcRowIcon: String {
+        switch lookupStatus {
+        case .success, .cached: return "checkmark.circle.fill"
+        case .failure:          return "exclamationmark.circle"
+        default:                return "barcode"
+        }
+    }
+
+    private var upcRowIconColor: Color {
+        switch lookupStatus {
+        case .success, .cached: return .green
+        case .failure:          return .orange
+        default:                return .secondary
+        }
+    }
+
+    @ViewBuilder
+    private var lookupFooter: some View {
+        switch lookupStatus {
+        case .idle:
+            Text("Scan a UPC barcode to auto-fill the fields below.")
+        case .loading:
+            Text("Searching product database…")
+        case .cached:
+            Text("Loaded from cache — review and save when ready.")
+                .foregroundStyle(.green)
+        case .success:
+            Text("Fields auto-filled — review and save when ready.")
+                .foregroundStyle(.green)
+        case .partialSuccess:
+            Text("Product found but ammo details couldn't be parsed. Fill in manually.")
+                .foregroundStyle(.secondary)
+        case .failure(let msg):
+            Text(msg)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Lookup
+
+    private func performLookup(upc: String) {
+        // Cache check — instant, no loading state needed
+        let descriptor = FetchDescriptor<UPCLookupCache>(
+            predicate: #Predicate { $0.upc == upc }
+        )
+        if let cached = try? modelContext.fetch(descriptor).first {
+            applyResult(cached.asBarcodeResult)
+            lookupStatus = .cached
+            return
+        }
+
+        // Cache miss — hit the network
+        lookupStatus = .loading
+        Task {
+            do {
+                let result = try await BarcodeService.shared.lookup(upc: upc)
+                if result.hasAnyAmmoData {
+                    modelContext.insert(UPCLookupCache(upc: upc, result: result))
+                    applyResult(result)
+                    lookupStatus = .success
+                } else {
+                    lookupStatus = .partialSuccess
+                }
+            } catch let e as BarcodeServiceError {
+                lookupStatus = .failure(e.errorDescription ?? "Lookup failed. Fill in manually.")
+            } catch {
+                lookupStatus = .failure("Lookup failed. Fill in manually.")
+            }
+        }
+    }
+
+    private func applyResult(_ result: BarcodeResult) {
+        if let v = result.brand,        !v.isEmpty { brand = v }
+        if let v = result.productLine,  !v.isEmpty { productLine = v }
+        if let v = result.caliber,      !v.isEmpty { caliber = v }
+        if let v = result.grain,        v > 0      { grainText = String(v) }
+        if let v = result.bulletType               { bulletType = v }
+        if let v = result.quantityPerBox, v > 0   { quantityPerBoxText = String(v) }
+        if let v = result.caseMaterial, !v.isEmpty { caseMaterial = v }
+    }
+
+    // MARK: - Save
 
     private var canSave: Bool {
         let b = brand.trimmingCharacters(in: .whitespacesAndNewlines)

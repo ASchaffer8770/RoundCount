@@ -34,6 +34,9 @@ final class AmmoProduct {
     var caseMaterial: String?      // Brass/Steel/Aluminum
     var notes: String?
 
+    // Inventory tracking (nil = not tracking; 0 = tracking, out of stock; >0 = rounds on hand)
+    var roundsOnHand: Int?
+
     var createdAt: Date
 
     init(
@@ -60,6 +63,14 @@ final class AmmoProduct {
 
     var bulletType: BulletType {
         BulletType(rawValue: bulletTypeRaw) ?? .other
+    }
+
+    var isTrackingInventory: Bool { roundsOnHand != nil }
+
+    var inventoryDisplayText: String {
+        guard let count = roundsOnHand else { return "—" }
+        if count == 0 { return "Out of stock" }
+        return "\(count) round\(count == 1 ? "" : "s")"
     }
 
     var displayName: String {

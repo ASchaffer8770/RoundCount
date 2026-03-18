@@ -12,6 +12,8 @@ struct AmmoView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var scheme
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var entitlements: Entitlements
+    @EnvironmentObject private var coachMarkManager: CoachMarkManager
 
     @Query(sort: \AmmoProduct.createdAt, order: .reverse)
     private var ammo: [AmmoProduct]
@@ -47,6 +49,14 @@ struct AmmoView: View {
         return d.formatted(date: .abbreviated, time: .omitted)
     }
 
+    private var totalRoundsOnHand: Int {
+        ammo.compactMap(\.roundsOnHand).reduce(0, +)
+    }
+
+    private var anyTracking: Bool {
+        ammo.contains { $0.isTrackingInventory }
+    }
+
     private func ammoByID(_ id: UUID) -> AmmoProduct? {
         ammo.first(where: { $0.id == id })
     }
@@ -68,6 +78,15 @@ struct AmmoView: View {
                             value: mostRecentText,
                             systemImage: "clock.fill"
                         )
+                    }
+
+                    if entitlements.isPro && anyTracking {
+                        summaryPill(
+                            title: "On hand",
+                            value: "\(totalRoundsOnHand) rounds",
+                            systemImage: "shippingbox.fill"
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
                     Text("Select ammo in Live runs to compute malfunction rate per ammo type.")
@@ -112,6 +131,7 @@ struct AmmoView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .coachMarkAnchor(id: "ammo.add")
                     }
 
                     if filtered.isEmpty {
@@ -205,6 +225,7 @@ struct AmmoView: View {
 
         // Recompute dashboard
         .onAppear { recomputeDashboard() }
+        .onAppear { coachMarkManager.startIfNeeded(.ammo) }
         .onChange(of: dashRange) { _, _ in recomputeDashboard() }
         .onChange(of: ammo.count) { _, _ in recomputeDashboard() }
         .onChange(of: runs.count) { _, _ in recomputeDashboard() }
@@ -460,9 +481,22 @@ private struct AmmoRow: View {
             let line = (ammo.productLine?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
             let title = line.isEmpty ? ammo.brand : "\(ammo.brand) \(line)"
 
-            Text(title)
-                .font(.headline)
-                .lineLimit(1)
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.headline)
+                    .lineLimit(1)
+
+                if ammo.isTrackingInventory {
+                    let count = ammo.roundsOnHand ?? 0
+                    Text(count == 0 ? "Out" : "\(count)")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(count == 0 ? Color.orange.opacity(0.18) : Color.green.opacity(0.18))
+                        .foregroundStyle(count == 0 ? .orange : .green)
+                        .clipShape(Capsule())
+                }
+            }
 
             Text(subtitleParts.joined(separator: " • "))
                 .font(.footnote)

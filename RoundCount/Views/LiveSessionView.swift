@@ -5,6 +5,7 @@
 //  Created by Alex Schaffer on 1/19/26.
 //
 
+import Combine
 import SwiftUI
 import SwiftData
 import UIKit
@@ -31,6 +32,7 @@ final class LiveSessionVM: ObservableObject {
     @Published var runs: [FirearmRun] = []
     @Published var activeRunID: UUID? = nil
     @Published var sessionNotes: String = ""
+    @Published var ammoReplenishmentNeeded: [AmmoProduct] = []
 
     var totalRounds: Int { runs.reduce(0) { $0 + $1.rounds } }
     var totalMalfunctions: Int { runs.reduce(0) { $0 + $1.malfunctionsCount } }
@@ -118,6 +120,20 @@ final class LiveSessionVM: ObservableObject {
 
         s.endedAt = Date()
         s.notes = sessionNotes
+
+        // Auto-decrement inventory; collect ammo that went below zero for replenishment prompt.
+        var replenishSet = Set<PersistentIdentifier>()
+        var replenishment: [AmmoProduct] = []
+        for run in runs where run.rounds > 0 {
+            guard let ammo = run.ammo, ammo.isTrackingInventory else { continue }
+            let current = ammo.roundsOnHand ?? 0
+            let after = current - run.rounds
+            if after < 0 && replenishSet.insert(ammo.persistentModelID).inserted {
+                replenishment.append(ammo)
+            }
+            ammo.roundsOnHand = max(0, after)
+        }
+        ammoReplenishmentNeeded = replenishment
 
         try? modelContext.save()   // ✅ OK to block here; user expects a “finish/save”
         endedAt = s.endedAt
@@ -295,6 +311,7 @@ struct LiveSessionView: View {
 
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var entitlements: Entitlements
+    @EnvironmentObject private var coachMarkManager: CoachMarkManager
     @Environment(\.scenePhase) private var scenePhase
 
     @Query(sort: \Firearm.createdAt, order: .reverse) private var firearms: [Firearm]
@@ -320,6 +337,7 @@ struct LiveSessionView: View {
 
     @State private var confirmEndSession = false
     @State private var confirmDeleteRunID: UUID? = nil
+    @State private var showReplenishmentSheet = false
 
     @State private var roundsTextByRun: [UUID: String] = [:]
     @State private var isEditingRoundsForRun: UUID? = nil
@@ -627,9 +645,14 @@ struct LiveSessionView: View {
         }
 
         .onAppear { consumePreselectedStartIfNeeded() }
+        .onAppear { coachMarkManager.startIfNeeded(.liveSession) }
         .onChange(of: firearms.count) { _, _ in consumePreselectedStartIfNeeded() }
         .onAppear { syncIdleTimer() }
-        .onChange(of: vm.state) { _, _ in syncIdleTimer() }
+        .onChange(of: vm.state) { _, newState in onStateChanged(newState) }
+
+        .sheet(isPresented: $showReplenishmentSheet) {
+            AmmoReplenishmentSheet(ammoList: vm.ammoReplenishmentNeeded)
+        }
         .onDisappear {
             Task { @MainActor in
                 try? modelContext.save()
@@ -682,6 +705,7 @@ struct LiveSessionView: View {
                 case .idle:
                     Button("Start Session") { startSessionTapped() }
                         .buttonStyle(ActionButtonStyle(prominent: true))
+                        .coachMarkAnchor(id: "liveSession.start")
 
                 case .running:
                     Button {
@@ -695,12 +719,14 @@ struct LiveSessionView: View {
                         }
                     }
                     .buttonStyle(ActionButtonStyle(prominent: true))
+                    .coachMarkAnchor(id: "liveSession.addRun")
 
                     Button("Pause") { pauseTapped() }
                         .buttonStyle(ActionButtonStyle())
 
                     Button("End") { confirmEndSession = true }
                         .buttonStyle(ActionButtonStyle(role: .destructive))
+                        .coachMarkAnchor(id: "liveSession.end")
 
                 case .paused:
                     Button("Resume") { resumeTapped() }
@@ -1445,6 +1471,13 @@ struct LiveSessionView: View {
         haptic(.medium)
     }
 
+    private func onStateChanged(_ newState: LiveSessionVM.State) {
+        syncIdleTimer()
+        if newState == .ended && !vm.ammoReplenishmentNeeded.isEmpty {
+            showReplenishmentSheet = true
+        }
+    }
+
     private func bumpRounds(runID: UUID, delta: Int) {
         vm.updateRun(runID, modelContext: modelContext) { r in
             r.rounds = max(0, r.rounds + delta)
@@ -2041,5 +2074,108 @@ private struct CameraCaptureView: UIViewControllerRepresentable {
             picker.dismiss(animated: true)
             onComplete(image)
         }
+    }
+}
+
+// MARK: - Ammo Replenishment Sheet
+
+private struct AmmoReplenishmentSheet: View {
+    let ammoList: [AmmoProduct]
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.colorScheme) private var scheme
+
+    enum EntryUnit: String, CaseIterable, Identifiable {
+        case rounds = "Rounds"
+        case boxes  = "Boxes"
+        var id: String { rawValue }
+    }
+
+    @State private var roundsText: [UUID: String] = [:]
+    @State private var unit: [UUID: EntryUnit] = [:]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeaderBar(
+                title: "Restock Ammo?",
+                onCancel: { dismiss() },
+                onSave: { save() },
+                saveEnabled: true
+            )
+
+            Form {
+                Section {
+                    Text("You fired more rounds than you had tracked for the ammo below. Did you grab more boxes at the range?")
+                        .foregroundStyle(.secondary)
+                }
+
+                ForEach(ammoList) { ammo in
+                    Section(ammo.displayName) {
+                        if ammo.quantityPerBox != nil {
+                            Picker("Unit", selection: unitBinding(for: ammo)) {
+                                ForEach(EntryUnit.allCases) { u in Text(u.rawValue).tag(u) }
+                            }
+                            .pickerStyle(.segmented)
+                        }
+
+                        HStack {
+                            TextField(
+                                currentUnit(for: ammo) == .rounds ? "Rounds" : "Boxes",
+                                text: textBinding(for: ammo)
+                            )
+                            .keyboardType(.numberPad)
+
+                            if currentUnit(for: ammo) == .boxes,
+                               let qpb = ammo.quantityPerBox,
+                               let qty = Int(roundsText[ammo.id] ?? ""), qty > 0 {
+                                Spacer()
+                                Text("= \(qty * qpb) rounds")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+        }
+        .background(Brand.pageBackground(scheme))
+    }
+
+    private func currentUnit(for ammo: AmmoProduct) -> EntryUnit {
+        unit[ammo.id] ?? .rounds
+    }
+
+    private func unitBinding(for ammo: AmmoProduct) -> Binding<EntryUnit> {
+        Binding(
+            get: { unit[ammo.id] ?? .rounds },
+            set: { unit[ammo.id] = $0 }
+        )
+    }
+
+    private func textBinding(for ammo: AmmoProduct) -> Binding<String> {
+        Binding(
+            get: { roundsText[ammo.id] ?? "" },
+            set: { roundsText[ammo.id] = $0 }
+        )
+    }
+
+    private func save() {
+        for ammo in ammoList {
+            guard let text = roundsText[ammo.id],
+                  let qty = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  qty > 0 else { continue }
+
+            let toAdd: Int
+            if currentUnit(for: ammo) == .boxes, let qpb = ammo.quantityPerBox, qpb > 0 {
+                toAdd = qty * qpb
+            } else {
+                toAdd = qty
+            }
+            ammo.roundsOnHand = (ammo.roundsOnHand ?? 0) + toAdd
+        }
+        try? modelContext.save()
+        dismiss()
     }
 }

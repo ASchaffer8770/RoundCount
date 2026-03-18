@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import StoreKit
 
@@ -10,7 +11,11 @@ enum UserTier: String, Codable {
 final class Entitlements: ObservableObject {
 
     // PRODUCTION AND TEST FLIGHT FLAGS
+    #if DEBUG
+    static let allowBetaProToggle = true
+    #else
     static let allowBetaProToggle = false
+    #endif
     static let allowBetaProPurchase = true
 
     // This drives UI updates automatically

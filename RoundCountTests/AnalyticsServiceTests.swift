@@ -79,7 +79,7 @@ struct AnalyticsServiceTests {
     // MARK: - totals
 
     @Test func totals_emptySessions_returnsZeros() {
-        let result = AnalyticsService.totals([])
+        let result = AnalyticsService.totals([SessionV2]())
         #expect(result.rounds == 0)
         #expect(result.durationSeconds == 0)
         #expect(result.malfunctions == 0)
@@ -138,7 +138,7 @@ struct AnalyticsServiceTests {
     // MARK: - roundsByDay
 
     @Test func roundsByDay_emptySessions_returnsEmpty() {
-        let result = AnalyticsService.roundsByDay([], calendar: utcCalendar)
+        let result = AnalyticsService.roundsByDay([SessionV2](), calendar: utcCalendar)
         #expect(result.isEmpty)
     }
 

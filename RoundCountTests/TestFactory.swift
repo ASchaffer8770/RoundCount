@@ -23,6 +23,7 @@ func makeTestContainer() throws -> ModelContainer {
         SessionV2.self,
         AmmoProduct.self,
         SessionPhoto.self,
+        UPCLookupCache.self,
     ])
     return try ModelContainer(
         for: schema,
@@ -102,6 +103,28 @@ func makePhoto(
     ctx.insert(p)
     run.photos.append(p)
     return p
+}
+
+@discardableResult
+func makeAmmoProduct(
+    in ctx: ModelContext,
+    brand: String = "Federal",
+    caliber: String = "9mm",
+    grain: Int = 115,
+    bulletType: BulletType = .fmj,
+    quantityPerBox: Int? = 50,
+    roundsOnHand: Int? = nil
+) -> AmmoProduct {
+    let a = AmmoProduct(
+        brand: brand,
+        caliber: caliber,
+        grain: grain,
+        bulletType: bulletType,
+        quantityPerBox: quantityPerBox
+    )
+    a.roundsOnHand = roundsOnHand
+    ctx.insert(a)
+    return a
 }
 
 // MARK: - Date helpers

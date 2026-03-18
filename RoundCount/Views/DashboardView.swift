@@ -10,8 +10,9 @@ import SwiftData
 
 struct DashboardView: View {
     @EnvironmentObject private var entitlements: Entitlements
-    @Environment(\.colorScheme) private var scheme
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var coachMarkManager: CoachMarkManager
+    @Environment(\.colorScheme) private var scheme
 
     @State private var showPaywall = false
     @State private var paywallFeature: Feature? = nil
@@ -95,6 +96,7 @@ struct DashboardView: View {
         }
         .background(Brand.pageBackground(scheme))
         .navigationTitle("RoundCount")
+        .onAppear { coachMarkManager.startIfNeeded(.dashboard) }
 
         // Sheets
         .sheet(isPresented: $showAddFirearm) {
@@ -259,6 +261,7 @@ struct DashboardView: View {
         }
         .padding(14)
         .accentCard(radius: Brand.Radius.l)
+        .coachMarkAnchor(id: "dashboard.quickActions")
     }
 
     private var analyticsButton: some View {

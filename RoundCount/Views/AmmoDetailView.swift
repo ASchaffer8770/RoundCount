@@ -4,6 +4,7 @@ import SwiftData
 struct AmmoDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var entitlements: Entitlements
 
     let ammo: AmmoProduct
 
@@ -12,6 +13,8 @@ struct AmmoDetailView: View {
 
     @State private var showDeleteConfirm = false
     @State private var showEditSheet = false
+    @State private var showStockAdjustment = false
+    @State private var showPaywall = false
 
     // MARK: - Usage rollups
 
@@ -42,6 +45,7 @@ struct AmmoDetailView: View {
     var body: some View {
         List {
             headerSection
+            inventorySection
             detailsSection
             usageSection
 
@@ -63,6 +67,13 @@ struct AmmoDetailView: View {
         }
         .sheet(isPresented: $showEditSheet) {
             AmmoEditView(ammo: ammo)
+        }
+        .sheet(isPresented: $showStockAdjustment) {
+            StockAdjustmentView(ammo: ammo)
+        }
+        .sheet(isPresented: $showPaywall) {
+            PayWallView(title: "RoundCount Pro", subtitle: nil)
+                .environmentObject(entitlements)
         }
     }
 
@@ -89,6 +100,53 @@ struct AmmoDetailView: View {
                 }
             }
             .padding(.vertical, 4)
+        }
+    }
+
+    private var inventorySection: some View {
+        Section("Inventory") {
+            if entitlements.isPro {
+                if ammo.isTrackingInventory {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("On hand")
+                            Text(ammo.inventoryDisplayText)
+                                .font(.subheadline)
+                                .foregroundStyle(ammo.roundsOnHand == 0 ? .orange : .primary)
+                        }
+                        Spacer()
+                        Button("Adjust") {
+                            showStockAdjustment = true
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                } else {
+                    Button {
+                        showStockAdjustment = true
+                    } label: {
+                        Label("Track Inventory", systemImage: "shippingbox")
+                    }
+                }
+            } else {
+                Button {
+                    showPaywall = true
+                } label: {
+                    HStack {
+                        Label("Track inventory", systemImage: "lock.fill")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("Pro")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Brand.accent.opacity(0.15))
+                            .foregroundStyle(Brand.accent)
+                            .clipShape(Capsule())
+                    }
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 

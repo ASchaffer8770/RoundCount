@@ -9,10 +9,12 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var entitlements: Entitlements
+    @EnvironmentObject private var coachMarkManager: CoachMarkManager
     @Environment(\.colorScheme) private var scheme
 
     @State private var showPaywall = false
     @State private var showAbout = false
+    @State private var showWalkthroughConfirm = false
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
@@ -90,6 +92,25 @@ struct SettingsView: View {
                 .listRowBackground(Color.clear)
             }
 
+            // Help
+            Section {
+                settingsCard(title: "Help") {
+                    Button {
+                        showWalkthroughConfirm = true
+                    } label: {
+                        settingsRow(
+                            title: "Replay App Walkthrough",
+                            value: "",
+                            systemImage: "lightbulb",
+                            showsChevron: false
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+
             // About
             Section {
                 settingsCard(title: "About") {
@@ -128,6 +149,14 @@ struct SettingsView: View {
         .navigationDestination(isPresented: $showAbout) {
                 AboutView()
             }
+        .confirmationDialog("Replay App Walkthrough?", isPresented: $showWalkthroughConfirm, titleVisibility: .visible) {
+            Button("Replay Walkthrough") {
+                coachMarkManager.resetAll()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Coach marks will reappear the next time you visit each section.")
+        }
         .sheet(isPresented: $showPaywall) {
             PayWallView(
                 title: "RoundCount Pro",

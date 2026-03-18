@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootTabView: View {
     @StateObject private var router = AppRouter()
+    @EnvironmentObject private var coachMarkManager: CoachMarkManager
 
     let startAction: OnboardingCompletionAction?
 
@@ -60,6 +61,13 @@ struct RootTabView: View {
             .tag(AppTab.settings)
         }
         .environmentObject(router)
+        .onPreferenceChange(CoachMarkFrameKey.self) { newFrames in
+            coachMarkManager.frames.merge(newFrames) { $1 }
+        }
+        .overlay {
+            CoachMarkRootOverlay()
+                .animation(.easeInOut(duration: 0.25), value: coachMarkManager.activeSequenceID)
+        }
         .sheet(isPresented: $showOnboardingAddFirearm) {
             AddFirearmView()
                 .presentationDetents([.large])
